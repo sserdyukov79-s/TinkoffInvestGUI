@@ -1,25 +1,28 @@
 package com.algotrading.tinkoffinvestgui.api;
 
+import com.algotrading.tinkoffinvestgui.config.ConnectorConfig;
 import ru.tinkoff.piapi.contract.v1.*;
 import io.grpc.ManagedChannel;
 import io.grpc.Metadata;
 import io.grpc.stub.MetadataUtils;
 
-import java.util.List;
-
 /**
  * Сервис для работы с аккаунтами Tinkoff Invest API.
- * Управляет получением списка счетов и их информации.
  */
 public class AccountsService extends BaseApiService {
 
-    public AccountsService(String token, String apiUrl, int apiPort) {
-        super(token, apiUrl, apiPort);
+    public AccountsService() {
+        // Получаем токен из БД через ConnectorConfig
+        super(
+                ConnectorConfig.getApiToken(),
+                ConnectorConfig.API_URL,
+                ConnectorConfig.API_PORT
+        );
         validateToken();
     }
 
     /**
-     * Получает количество счетов
+     * Получает количество аккаунтов пользователя
      */
     public int getAccountsCount() {
         try {
@@ -30,17 +33,19 @@ public class AccountsService extends BaseApiService {
                     UsersServiceGrpc.newBlockingStub(channel)
                             .withInterceptors(MetadataUtils.newAttachHeadersInterceptor(headers));
 
-            GetAccountsResponse response = usersService.getAccounts(GetAccountsRequest.getDefaultInstance());
+            GetAccountsRequest request = GetAccountsRequest.newBuilder().build();
+            GetAccountsResponse response = usersService.getAccounts(request);
+
             return response.getAccountsCount();
         } catch (Exception e) {
-            throw handleApiError("получении количества счетов", e);
+            throw handleApiError("получении количества аккаунтов", e);
         }
     }
 
     /**
-     * Получает список всех счетов
+     * Получает список всех аккаунтов
      */
-    public List<Account> getAccountsList() {
+    public GetAccountsResponse getAccounts() {
         try {
             ManagedChannel channel = getChannel();
             Metadata headers = getAuthorizationHeaders();
@@ -49,10 +54,10 @@ public class AccountsService extends BaseApiService {
                     UsersServiceGrpc.newBlockingStub(channel)
                             .withInterceptors(MetadataUtils.newAttachHeadersInterceptor(headers));
 
-            GetAccountsResponse response = usersService.getAccounts(GetAccountsRequest.getDefaultInstance());
-            return response.getAccountsList();
+            GetAccountsRequest request = GetAccountsRequest.newBuilder().build();
+            return usersService.getAccounts(request);
         } catch (Exception e) {
-            throw handleApiError("получении списка счетов", e);
+            throw handleApiError("получении списка аккаунтов", e);
         }
     }
 }

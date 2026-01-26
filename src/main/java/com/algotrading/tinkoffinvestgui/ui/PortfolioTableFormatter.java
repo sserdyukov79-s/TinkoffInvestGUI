@@ -1,7 +1,6 @@
 package com.algotrading.tinkoffinvestgui.ui;
 
 import ru.tinkoff.piapi.contract.v1.*;
-import javax.swing.table.DefaultTableModel;
 
 /**
  * Форматирует данные портфеля для отображения в таблице.
