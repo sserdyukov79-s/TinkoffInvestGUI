@@ -29,7 +29,6 @@ public class PortfolioService {
                     OperationsServiceGrpc.newBlockingStub(channel)
                             .withInterceptors(MetadataUtils.newAttachHeadersInterceptor(headers));
 
-            // Используем PortfolioRequest вместо GetPortfolioRequest
             PortfolioRequest request = PortfolioRequest.newBuilder()
                     .setAccountId(accountId)
                     .build();
@@ -60,14 +59,50 @@ public class PortfolioService {
     }
 
     /**
-     * Получает тикер или UID инструмента
+     * Получает FIGI инструмента
      */
-    public static String getInstrumentId(PortfolioPosition position) {
+    public static String getFigi(PortfolioPosition position) {
         if (position != null && !position.getFigi().isEmpty()) {
             return position.getFigi();
         }
-        if (position != null) {
-            return position.getInstrumentUid();
+        return "--";
+    }
+
+    /**
+     * Получает Ticker инструмента
+     */
+    public static String getTicker(PortfolioPosition position) {
+        if (position != null && !position.getTicker().isEmpty()) {
+            return position.getTicker();
+        }
+        return "--";
+    }
+
+    /**
+     * Получает тип инструмента
+     */
+    public static String getInstrumentType(PortfolioPosition position) {
+        if (position != null && !position.getInstrumentType().isEmpty()) {
+            String type = position.getInstrumentType();
+            switch (type) {
+                case "share": return "Акция";
+                case "bond": return "Облигация";
+                case "etf": return "ETF";
+                case "currency": return "Валюта";
+                case "futures": return "Фьючерс";
+                case "option": return "Опцион";
+                default: return type;
+            }
+        }
+        return "--";
+    }
+
+    /**
+     * Получает код площадки (classCode)
+     */
+    public static String getClassCode(PortfolioPosition position) {
+        if (position != null && !position.getClassCode().isEmpty()) {
+            return position.getClassCode();
         }
         return "--";
     }

@@ -20,8 +20,8 @@ public class TinkoffInvestGui extends JFrame {
     public TinkoffInvestGui() {
         setTitle("Tinkoff Invest Accounts");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setLayout(new GridBagLayout());
-        setSize(550, 700);
+        setLayout(new BorderLayout());
+        setSize(1000, 800);
         setLocationRelativeTo(null);
 
         JLabel title = new JLabel("🧾 Счета Tinkoff Invest", SwingConstants.CENTER);
@@ -42,55 +42,58 @@ public class TinkoffInvestGui extends JFrame {
         realAccountsTable = new JTable(new DefaultTableModel(new Object[][]{{"Загрузка..."}}, accountColumns));
         sandboxAccountsTable = new JTable(new DefaultTableModel(new Object[][]{{"Загрузка..."}}, accountColumns));
 
-        String[] portfolioColumns = {"Тикер/UID", "Кол-во", "Средняя цена", "Стоимость"};
+        String[] portfolioColumns = {"FIGI", "Тикер", "Тип", "Площадка", "Кол-во", "Средняя цена", "Стоимость"};
         portfolioTable = new JTable(new DefaultTableModel(new Object[][]{{"--"}}, portfolioColumns));
 
         JScrollPane realScroll = new JScrollPane(realAccountsTable);
         JScrollPane sandboxScroll = new JScrollPane(sandboxAccountsTable);
         JScrollPane portfolioScroll = new JScrollPane(portfolioTable);
 
-        realScroll.setPreferredSize(new Dimension(500, 100));
-        sandboxScroll.setPreferredSize(new Dimension(500, 100));
-        portfolioScroll.setPreferredSize(new Dimension(500, 150));
+        // Верхняя панель с заголовком и кнопками
+        JPanel topPanel = new JPanel();
+        topPanel.setLayout(new BoxLayout(topPanel, BoxLayout.Y_AXIS));
+        topPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(10, 10, 10, 10);
-        gbc.fill = GridBagConstraints.HORIZONTAL;
+        topPanel.add(title);
+        topPanel.add(Box.createVerticalStrut(10));
 
-        gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 2;
-        add(title, gbc);
+        JPanel statsPanel = new JPanel(new GridLayout(1, 2, 10, 0));
+        statsPanel.add(realAccountsLabel);
+        statsPanel.add(sandboxAccountsLabel);
+        topPanel.add(statsPanel);
 
-        gbc.gridy = 1; gbc.gridwidth = 1;
-        add(new JLabel("Реальные:", SwingConstants.RIGHT), gbc);
-        gbc.gridx = 1;
-        add(realAccountsLabel, gbc);
+        topPanel.add(Box.createVerticalStrut(10));
 
-        gbc.gridx = 0; gbc.gridy = 2;
-        add(new JLabel("Sandbox:", SwingConstants.RIGHT), gbc);
-        gbc.gridx = 1;
-        add(sandboxAccountsLabel, gbc);
+        JPanel buttonsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 0));
+        buttonsPanel.add(refreshButton);
+        buttonsPanel.add(portfolioButton);
+        topPanel.add(buttonsPanel);
 
-        gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 2;
-        gbc.fill = GridBagConstraints.NONE;
-        add(refreshButton, gbc);
+        // Центральная панель с таблицами
+        JPanel centerPanel = new JPanel();
+        centerPanel.setLayout(new BoxLayout(centerPanel, BoxLayout.Y_AXIS));
+        centerPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        gbc.gridy = 4;
-        add(portfolioButton, gbc);
+        JLabel realLabel = new JLabel("📊 Реальные счета:");
+        realLabel.setFont(new Font("Arial", Font.BOLD, 12));
+        centerPanel.add(realLabel);
+        centerPanel.add(realScroll);
+        centerPanel.add(Box.createVerticalStrut(10));
 
-        gbc.gridx = 0; gbc.gridy = 5; gbc.gridwidth = 2;
-        gbc.fill = GridBagConstraints.BOTH;
-        add(realScroll, gbc);
+        JLabel sandboxLabel = new JLabel("🏖️ Sandbox счета:");
+        sandboxLabel.setFont(new Font("Arial", Font.BOLD, 12));
+        centerPanel.add(sandboxLabel);
+        centerPanel.add(sandboxScroll);
+        centerPanel.add(Box.createVerticalStrut(10));
 
-        gbc.gridy = 6;
-        add(sandboxScroll, gbc);
+        JLabel portfolioLabel = new JLabel("💼 Портфель:");
+        portfolioLabel.setFont(new Font("Arial", Font.BOLD, 12));
+        centerPanel.add(portfolioLabel);
+        centerPanel.add(portfolioScroll);
 
-        gbc.gridy = 7; gbc.gridwidth = 2;
-        gbc.fill = GridBagConstraints.NONE;
-        add(new JLabel("Портфель:", SwingConstants.CENTER), gbc);
-
-        gbc.gridy = 8; gbc.gridwidth = 2;
-        gbc.fill = GridBagConstraints.BOTH;
-        add(portfolioScroll, gbc);
+        // Добавляем панели на форму
+        add(topPanel, BorderLayout.NORTH);
+        add(centerPanel, BorderLayout.CENTER);
 
         updateAccounts();
     }
@@ -194,12 +197,16 @@ public class TinkoffInvestGui extends JFrame {
             return;
         }
 
-        Object[][] data = new Object[portfolio.getPositionsCount()][4];
+        // Теперь 7 колонок (добавили Type и Code отдельно)
+        Object[][] data = new Object[portfolio.getPositionsCount()][7];
         for (int i = 0; i < portfolio.getPositionsCount(); i++) {
             PortfolioPosition position = portfolio.getPositions(i);
 
             // Получаем данные позиции
-            String instrumentId = PortfolioService.getInstrumentId(position);
+            String figi = PortfolioService.getFigi(position);
+            String ticker = PortfolioService.getTicker(position);
+            String instrumentType = PortfolioService.getInstrumentType(position);
+            String classCode = PortfolioService.getClassCode(position);
             String quantity = PortfolioService.formatQuantity(position.getQuantity());
             String avgPrice = PortfolioService.formatPrice(position.getAveragePositionPrice());
 
@@ -210,13 +217,16 @@ public class TinkoffInvestGui extends JFrame {
             double totalCost = qty * price;
             String cost = String.format("%.2f ₽", totalCost);
 
-            data[i][0] = instrumentId;
-            data[i][1] = quantity;
-            data[i][2] = avgPrice;
-            data[i][3] = cost;
+            data[i][0] = figi;
+            data[i][1] = ticker;
+            data[i][2] = instrumentType;
+            data[i][3] = classCode;
+            data[i][4] = quantity;
+            data[i][5] = avgPrice;
+            data[i][6] = cost;
         }
         portfolioTable.setModel(new DefaultTableModel(data,
-                new String[]{"Тикер/UID", "Кол-во", "Средняя цена", "Стоимость"}));
+                new String[]{"FIGI", "Тикер", "Тип", "Площадка", "Кол-во", "Средняя цена", "Стоимость"}));
     }
 
     private String formatAccountType(AccountType type) {
