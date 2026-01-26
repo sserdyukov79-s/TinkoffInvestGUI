@@ -6,6 +6,8 @@ import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 
 public class TinkoffInvestGui extends JFrame {
     private JLabel realAccountsLabel;
@@ -16,6 +18,8 @@ public class TinkoffInvestGui extends JFrame {
     private JButton refreshButton;
     private JButton portfolioButton;
     private String selectedAccountId = "2079063620";
+    private ScheduledExecutorService portfolioUpdateExecutor;
+    private static final long PORTFOLIO_UPDATE_INTERVAL_MINUTES = 5;
 
     public TinkoffInvestGui() {
         setTitle("Tinkoff Invest Accounts");
@@ -95,7 +99,23 @@ public class TinkoffInvestGui extends JFrame {
         add(topPanel, BorderLayout.NORTH);
         add(centerPanel, BorderLayout.CENTER);
 
+        // Запускаем автообновление портфеля
+        startPortfolioAutoUpdate();
+
         updateAccounts();
+    }
+
+    /**
+     * Запускает автообновление портфеля каждые 5 минут
+     */
+    private void startPortfolioAutoUpdate() {
+        portfolioUpdateExecutor = Executors.newScheduledThreadPool(1);
+        portfolioUpdateExecutor.scheduleAtFixedRate(
+                this::showPortfolio,
+                PORTFOLIO_UPDATE_INTERVAL_MINUTES,
+                PORTFOLIO_UPDATE_INTERVAL_MINUTES,
+                java.util.concurrent.TimeUnit.MINUTES
+        );
     }
 
     private void updateAccounts() {
@@ -243,6 +263,35 @@ public class TinkoffInvestGui extends JFrame {
             case ACCOUNT_STATUS_OPEN: return "Открыт ✓";
             case ACCOUNT_STATUS_CLOSED: return "Закрыт ✗";
             default: return status.name();
+        }
+    }
+
+    @Override
+    public void addWindowListener(java.awt.event.WindowListener l) {
+        super.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosing(java.awt.event.WindowEvent e) {
+                stopPortfolioAutoUpdate();
+                System.exit(0);
+            }
+        });
+        super.addWindowListener(l);
+    }
+
+    /**
+     * Останавливает автообновление портфеля при закрытии приложения
+     */
+    private void stopPortfolioAutoUpdate() {
+        if (portfolioUpdateExecutor != null && !portfolioUpdateExecutor.isShutdown()) {
+            portfolioUpdateExecutor.shutdown();
+            try {
+                if (!portfolioUpdateExecutor.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS)) {
+                    portfolioUpdateExecutor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                portfolioUpdateExecutor.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
         }
     }
 

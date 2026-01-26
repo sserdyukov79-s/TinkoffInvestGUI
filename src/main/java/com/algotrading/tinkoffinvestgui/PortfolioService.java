@@ -8,9 +8,15 @@ import io.grpc.stub.MetadataUtils;
 
 public class PortfolioService {
     private final String token;
+    private final String apiUrl;
+    private final int apiPort;
 
     public PortfolioService(String token) {
         this.token = token;
+        // Берем параметры из конфига
+        ConnectorConfig config = new ConnectorConfig("invest.properties");
+        this.apiUrl = config.getApiUrl();
+        this.apiPort = config.getApiPort();
     }
 
     /**
@@ -18,7 +24,7 @@ public class PortfolioService {
      */
     public PortfolioResponse getPortfolio(String accountId) {
         ManagedChannel channel = ManagedChannelBuilder
-                .forAddress("invest-public-api.tinkoff.ru", 443)
+                .forAddress(apiUrl, apiPort)
                 .useTransportSecurity()
                 .build();
         try {
