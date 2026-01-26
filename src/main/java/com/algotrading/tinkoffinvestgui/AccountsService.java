@@ -1,55 +1,58 @@
-package com.algotrading.tinkoffinvestgui;
+package com.algotrading.tinkoffinvestgui.api;
 
 import ru.tinkoff.piapi.contract.v1.*;
 import io.grpc.ManagedChannel;
-import io.grpc.ManagedChannelBuilder;
 import io.grpc.Metadata;
 import io.grpc.stub.MetadataUtils;
 
 import java.util.List;
 
-public class AccountsService {
-    private final String token;
+/**
+ * Сервис для работы с аккаунтами Tinkoff Invest API.
+ * Управляет получением списка счетов и их информации.
+ */
+public class AccountsService extends BaseApiService {
 
-    public AccountsService(String token) {
-        this.token = token;
+    public AccountsService(String token, String apiUrl, int apiPort) {
+        super(token, apiUrl, apiPort);
+        validateToken();
     }
 
+    /**
+     * Получает количество счетов
+     */
     public int getAccountsCount() {
-        ManagedChannel channel = ManagedChannelBuilder
-                .forAddress("invest-public-api.tinkoff.ru", 443)
-                .useTransportSecurity()
-                .build();
         try {
-            Metadata headers = new Metadata();
-            headers.put(Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER), "Bearer " + token);
-            UsersServiceGrpc.UsersServiceBlockingStub usersService = UsersServiceGrpc.newBlockingStub(channel)
-                    .withInterceptors(MetadataUtils.newAttachHeadersInterceptor(headers));
+            ManagedChannel channel = getChannel();
+            Metadata headers = getAuthorizationHeaders();
+
+            UsersServiceGrpc.UsersServiceBlockingStub usersService =
+                    UsersServiceGrpc.newBlockingStub(channel)
+                            .withInterceptors(MetadataUtils.newAttachHeadersInterceptor(headers));
+
             GetAccountsResponse response = usersService.getAccounts(GetAccountsRequest.getDefaultInstance());
             return response.getAccountsCount();
         } catch (Exception e) {
-            throw new RuntimeException("Ошибка получения счетов: " + e.getMessage(), e);
-        } finally {
-            channel.shutdown();
+            throw handleApiError("получении количества счетов", e);
         }
     }
 
+    /**
+     * Получает список всех счетов
+     */
     public List<Account> getAccountsList() {
-        ManagedChannel channel = ManagedChannelBuilder
-                .forAddress("invest-public-api.tinkoff.ru", 443)
-                .useTransportSecurity()
-                .build();
         try {
-            Metadata headers = new Metadata();
-            headers.put(Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER), "Bearer " + token);
-            UsersServiceGrpc.UsersServiceBlockingStub usersService = UsersServiceGrpc.newBlockingStub(channel)
-                    .withInterceptors(MetadataUtils.newAttachHeadersInterceptor(headers));
+            ManagedChannel channel = getChannel();
+            Metadata headers = getAuthorizationHeaders();
+
+            UsersServiceGrpc.UsersServiceBlockingStub usersService =
+                    UsersServiceGrpc.newBlockingStub(channel)
+                            .withInterceptors(MetadataUtils.newAttachHeadersInterceptor(headers));
+
             GetAccountsResponse response = usersService.getAccounts(GetAccountsRequest.getDefaultInstance());
             return response.getAccountsList();
         } catch (Exception e) {
-            throw new RuntimeException("Ошибка получения списка счетов: " + e.getMessage(), e);
-        } finally {
-            channel.shutdown();
+            throw handleApiError("получении списка счетов", e);
         }
     }
 }

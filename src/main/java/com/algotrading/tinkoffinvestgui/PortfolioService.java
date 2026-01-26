@@ -1,35 +1,28 @@
-package com.algotrading.tinkoffinvestgui;
+package com.algotrading.tinkoffinvestgui.api;
 
 import ru.tinkoff.piapi.contract.v1.*;
 import io.grpc.ManagedChannel;
-import io.grpc.ManagedChannelBuilder;
 import io.grpc.Metadata;
 import io.grpc.stub.MetadataUtils;
 
-public class PortfolioService {
-    private final String token;
-    private final String apiUrl;
-    private final int apiPort;
+/**
+ * Сервис для работы с портфелем Tinkoff Invest API.
+ * Управляет получением информации о позициях и портфеле.
+ */
+public class PortfolioService extends BaseApiService {
 
-    public PortfolioService(String token) {
-        this.token = token;
-        // Берем параметры из конфига
-        ConnectorConfig config = new ConnectorConfig("invest.properties");
-        this.apiUrl = config.getApiUrl();
-        this.apiPort = config.getApiPort();
+    public PortfolioService(String token, String apiUrl, int apiPort) {
+        super(token, apiUrl, apiPort);
+        validateToken();
     }
 
     /**
      * Получает портфель по ID счёта
      */
     public PortfolioResponse getPortfolio(String accountId) {
-        ManagedChannel channel = ManagedChannelBuilder
-                .forAddress(apiUrl, apiPort)
-                .useTransportSecurity()
-                .build();
         try {
-            Metadata headers = new Metadata();
-            headers.put(Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER), "Bearer " + token);
+            ManagedChannel channel = getChannel();
+            Metadata headers = getAuthorizationHeaders();
 
             OperationsServiceGrpc.OperationsServiceBlockingStub operationsService =
                     OperationsServiceGrpc.newBlockingStub(channel)
@@ -41,9 +34,7 @@ public class PortfolioService {
 
             return operationsService.getPortfolio(request);
         } catch (Exception e) {
-            throw new RuntimeException("Ошибка получения портфеля: " + e.getMessage(), e);
-        } finally {
-            channel.shutdown();
+            throw handleApiError("получении портфеля", e);
         }
     }
 

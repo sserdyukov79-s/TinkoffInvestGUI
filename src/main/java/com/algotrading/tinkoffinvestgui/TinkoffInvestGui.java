@@ -1,5 +1,9 @@
 package com.algotrading.tinkoffinvestgui;
 
+import com.algotrading.tinkoffinvestgui.api.AccountsService;
+import com.algotrading.tinkoffinvestgui.api.GrpcChannelManager;
+import com.algotrading.tinkoffinvestgui.api.PortfolioService;
+import com.algotrading.tinkoffinvestgui.ui.PortfolioTableFormatter;
 import ru.tinkoff.piapi.contract.v1.*;
 
 import javax.swing.*;
@@ -17,7 +21,9 @@ public class TinkoffInvestGui extends JFrame {
     private JTable portfolioTable;
     private JButton refreshButton;
     private JButton portfolioButton;
-    private String selectedAccountId = "2079063620";
+    private JComboBox<String> accountSelector;
+
+    private String selectedAccountId;
     private ScheduledExecutorService portfolioUpdateExecutor;
     private static final long PORTFOLIO_UPDATE_INTERVAL_MINUTES = 5;
 
@@ -42,11 +48,20 @@ public class TinkoffInvestGui extends JFrame {
         portfolioButton = new JButton("💼 Портфель");
         portfolioButton.addActionListener(e -> showPortfolio());
 
+        // Dropdown для выбора аккаунта
+        accountSelector = new JComboBox<>();
+        accountSelector.setFont(new Font("Arial", Font.PLAIN, 12));
+        accountSelector.addActionListener(e -> {
+            if (accountSelector.getSelectedIndex() > 0) {
+                selectedAccountId = (String) accountSelector.getSelectedItem();
+            }
+        });
+
         String[] accountColumns = {"ID", "Название", "Тип", "Статус"};
         realAccountsTable = new JTable(new DefaultTableModel(new Object[][]{{"Загрузка..."}}, accountColumns));
         sandboxAccountsTable = new JTable(new DefaultTableModel(new Object[][]{{"Загрузка..."}}, accountColumns));
 
-        String[] portfolioColumns = {"FIGI", "Тикер", "Тип", "Площадка", "Кол-во", "Средняя цена", "Стоимость"};
+        String[] portfolioColumns = PortfolioTableFormatter.getPortfolioColumnHeaders();
         portfolioTable = new JTable(new DefaultTableModel(new Object[][]{{"--"}}, portfolioColumns));
 
         JScrollPane realScroll = new JScrollPane(realAccountsTable);
@@ -71,6 +86,8 @@ public class TinkoffInvestGui extends JFrame {
         JPanel buttonsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 0));
         buttonsPanel.add(refreshButton);
         buttonsPanel.add(portfolioButton);
+        buttonsPanel.add(new JLabel("Выбрать счет:"));
+        buttonsPanel.add(accountSelector);
         topPanel.add(buttonsPanel);
 
         // Центральная панель с таблицами
@@ -101,7 +118,6 @@ public class TinkoffInvestGui extends JFrame {
 
         // Запускаем автообновление портфеля
         startPortfolioAutoUpdate();
-
         updateAccounts();
     }
 
@@ -118,33 +134,49 @@ public class TinkoffInvestGui extends JFrame {
         );
     }
 
+    /**
+     * Обновляет список счетов
+     */
     private void updateAccounts() {
         refreshButton.setEnabled(false);
         refreshButton.setText("⏳ Обновление...");
 
-        SwingWorker<Void, Void> worker = new SwingWorker<>() {
+        SwingWorker<Void, Void> worker = new SwingWorker<Void, Void>() {
             @Override
             protected Void doInBackground() {
                 try {
                     ConnectorConfig realConfig = new ConnectorConfig("invest.properties");
                     if (realConfig.getToken() != null && !realConfig.getToken().trim().isEmpty()) {
-                        AccountsService realService = new AccountsService(realConfig.getToken());
+                        AccountsService realService = new AccountsService(
+                                realConfig.getToken(),
+                                realConfig.getApiUrl(),
+                                realConfig.getApiPort()
+                        );
                         int realCount = realService.getAccountsCount();
                         List<Account> realAccounts = realService.getAccountsList();
+
                         SwingUtilities.invokeLater(() -> {
                             realAccountsLabel.setText("Реальные счета: " + realCount);
                             updateAccountsTable(realAccountsTable, realAccounts);
+                            populateAccountSelector(realAccounts);
                         });
                     }
 
                     ConnectorConfig sandboxConfig = new ConnectorConfig("sandbox.properties");
-                    AccountsService sandboxService = new AccountsService(sandboxConfig.getToken());
-                    int sandboxCount = sandboxService.getAccountsCount();
-                    List<Account> sandboxAccounts = sandboxService.getAccountsList();
-                    SwingUtilities.invokeLater(() -> {
-                        sandboxAccountsLabel.setText("Sandbox счета: " + sandboxCount);
-                        updateAccountsTable(sandboxAccountsTable, sandboxAccounts);
-                    });
+                    if (sandboxConfig.getToken() != null && !sandboxConfig.getToken().trim().isEmpty()) {
+                        AccountsService sandboxService = new AccountsService(
+                                sandboxConfig.getToken(),
+                                sandboxConfig.getApiUrl(),
+                                sandboxConfig.getApiPort()
+                        );
+                        int sandboxCount = sandboxService.getAccountsCount();
+                        List<Account> sandboxAccounts = sandboxService.getAccountsList();
+
+                        SwingUtilities.invokeLater(() -> {
+                            sandboxAccountsLabel.setText("Sandbox счета: " + sandboxCount);
+                            updateAccountsTable(sandboxAccountsTable, sandboxAccounts);
+                        });
+                    }
                 } catch (Exception e) {
                     SwingUtilities.invokeLater(() ->
                             JOptionPane.showMessageDialog(TinkoffInvestGui.this,
@@ -162,18 +194,44 @@ public class TinkoffInvestGui extends JFrame {
         worker.execute();
     }
 
+    /**
+     * Заполняет dropdown со списком аккаунтов
+     */
+    private void populateAccountSelector(List<Account> accounts) {
+        accountSelector.removeAllItems();
+        accountSelector.addItem("-- Выберите счет --");
+
+        for (Account account : accounts) {
+            accountSelector.addItem(account.getId());
+        }
+    }
+
+    /**
+     * Показывает портфель выбранного счета
+     */
     private void showPortfolio() {
+        if (selectedAccountId == null || selectedAccountId.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "Пожалуйста, выберите счет", "Внимание", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
         portfolioButton.setEnabled(false);
         portfolioButton.setText("⏳ Загрузка...");
 
-        SwingWorker<Void, Void> worker = new SwingWorker<>() {
+        SwingWorker<Void, Void> worker = new SwingWorker<Void, Void>() {
             @Override
             protected Void doInBackground() {
                 try {
                     ConnectorConfig realConfig = new ConnectorConfig("invest.properties");
                     if (realConfig.getToken() != null && !realConfig.getToken().trim().isEmpty()) {
-                        PortfolioService service = new PortfolioService(realConfig.getToken());
+                        PortfolioService service = new PortfolioService(
+                                realConfig.getToken(),
+                                realConfig.getApiUrl(),
+                                realConfig.getApiPort()
+                        );
                         PortfolioResponse portfolio = service.getPortfolio(selectedAccountId);
+
                         SwingUtilities.invokeLater(() -> updatePortfolioTable(portfolio));
                     }
                 } catch (Exception e) {
@@ -193,11 +251,15 @@ public class TinkoffInvestGui extends JFrame {
         worker.execute();
     }
 
+    /**
+     * Обновляет таблицу счетов
+     */
     private void updateAccountsTable(JTable table, List<Account> accounts) {
         if (accounts.isEmpty()) {
             table.setModel(new DefaultTableModel(new Object[][]{{"Нет счетов"}}, new String[]{"Детали"}));
             return;
         }
+
         Object[][] data = new Object[accounts.size()][4];
         for (int i = 0; i < accounts.size(); i++) {
             Account account = accounts.get(i);
@@ -206,49 +268,29 @@ public class TinkoffInvestGui extends JFrame {
             data[i][2] = formatAccountType(account.getType());
             data[i][3] = formatAccountStatus(account.getStatus());
         }
+
         table.setModel(new DefaultTableModel(data, new String[]{"ID", "Название", "Тип", "Статус"}));
     }
 
+    /**
+     * Обновляет таблицу портфеля
+     */
     private void updatePortfolioTable(PortfolioResponse portfolio) {
-        if (portfolio.getPositionsCount() == 0) {
+        if (PortfolioTableFormatter.isPortfolioEmpty(portfolio)) {
             portfolioTable.setModel(new DefaultTableModel(
                     new Object[][]{{"Позиций нет"}},
                     new String[]{"Информация"}));
             return;
         }
 
-        // Теперь 7 колонок (добавили Type и Code отдельно)
-        Object[][] data = new Object[portfolio.getPositionsCount()][7];
-        for (int i = 0; i < portfolio.getPositionsCount(); i++) {
-            PortfolioPosition position = portfolio.getPositions(i);
-
-            // Получаем данные позиции
-            String figi = PortfolioService.getFigi(position);
-            String ticker = PortfolioService.getTicker(position);
-            String instrumentType = PortfolioService.getInstrumentType(position);
-            String classCode = PortfolioService.getClassCode(position);
-            String quantity = PortfolioService.formatQuantity(position.getQuantity());
-            String avgPrice = PortfolioService.formatPrice(position.getAveragePositionPrice());
-
-            // Рассчитываем стоимость = количество * средняя цена
-            double qty = position.getQuantity().getUnits() + position.getQuantity().getNano() / 1e9;
-            double price = position.getAveragePositionPrice().getUnits() +
-                    position.getAveragePositionPrice().getNano() / 1e9;
-            double totalCost = qty * price;
-            String cost = String.format("%.2f ₽", totalCost);
-
-            data[i][0] = figi;
-            data[i][1] = ticker;
-            data[i][2] = instrumentType;
-            data[i][3] = classCode;
-            data[i][4] = quantity;
-            data[i][5] = avgPrice;
-            data[i][6] = cost;
-        }
-        portfolioTable.setModel(new DefaultTableModel(data,
-                new String[]{"FIGI", "Тикер", "Тип", "Площадка", "Кол-во", "Средняя цена", "Стоимость"}));
+        Object[][] data = PortfolioTableFormatter.formatPortfolioData(portfolio);
+        String[] headers = PortfolioTableFormatter.getPortfolioColumnHeaders();
+        portfolioTable.setModel(new DefaultTableModel(data, headers));
     }
 
+    /**
+     * Форматирует тип счета
+     */
     private String formatAccountType(AccountType type) {
         switch (type) {
             case ACCOUNT_TYPE_TINKOFF: return "Тинькофф брокерский";
@@ -258,6 +300,9 @@ public class TinkoffInvestGui extends JFrame {
         }
     }
 
+    /**
+     * Форматирует статус счета
+     */
     private String formatAccountStatus(AccountStatus status) {
         switch (status) {
             case ACCOUNT_STATUS_OPEN: return "Открыт ✓";
@@ -272,6 +317,7 @@ public class TinkoffInvestGui extends JFrame {
             @Override
             public void windowClosing(java.awt.event.WindowEvent e) {
                 stopPortfolioAutoUpdate();
+                GrpcChannelManager.getInstance().shutdown();
                 System.exit(0);
             }
         });
