@@ -5,7 +5,6 @@ import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.Metadata;
 import io.grpc.stub.MetadataUtils;
-import ru.tinkoff.piapi.contract.v1.UsersServiceGrpc;
 
 import java.util.List;
 
@@ -17,7 +16,6 @@ public class AccountsService {
     }
 
     public int getAccountsCount() {
-        // Старый метод остаётся
         ManagedChannel channel = ManagedChannelBuilder
                 .forAddress("invest-public-api.tinkoff.ru", 443)
                 .useTransportSecurity()
@@ -36,7 +34,6 @@ public class AccountsService {
         }
     }
 
-    // НОВЫЙ МЕТОД: полный список счетов с деталями
     public List<Account> getAccountsList() {
         ManagedChannel channel = ManagedChannelBuilder
                 .forAddress("invest-public-api.tinkoff.ru", 443)
