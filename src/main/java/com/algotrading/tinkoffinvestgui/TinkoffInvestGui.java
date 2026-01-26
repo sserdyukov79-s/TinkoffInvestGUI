@@ -1,23 +1,24 @@
 package com.algotrading.tinkoffinvestgui;
 
+import com.algotrading.tinkoffinvestgui.api.AccountsService;
+import com.algotrading.tinkoffinvestgui.api.PortfolioService;
+import com.algotrading.tinkoffinvestgui.config.ConnectorConfig;
 import ru.tinkoff.piapi.contract.v1.*;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
-import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
 public class TinkoffInvestGui extends JFrame {
-    private JLabel realAccountsLabel;
-    private JLabel sandboxAccountsLabel;
-    private JTable realAccountsTable;
-    private JTable sandboxAccountsTable;
+
+    private JLabel accountsLabel;
+    private JTable accountsTable;
     private JTable portfolioTable;
     private JButton refreshButton;
     private JButton portfolioButton;
-    private String selectedAccountId = "2079063620";
+    private String selectedAccountId = "";
     private ScheduledExecutorService portfolioUpdateExecutor;
     private static final long PORTFOLIO_UPDATE_INTERVAL_MINUTES = 5;
 
@@ -25,47 +26,40 @@ public class TinkoffInvestGui extends JFrame {
         setTitle("Tinkoff Invest Accounts");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLayout(new BorderLayout());
-        setSize(1000, 800);
+        setSize(1200, 800);
         setLocationRelativeTo(null);
 
-        JLabel title = new JLabel("🧾 Счета Tinkoff Invest", SwingConstants.CENTER);
+        JLabel title = new JLabel("🧾 Tinkoff Invest - Портфолио и счета", SwingConstants.CENTER);
         title.setFont(new Font("Arial", Font.BOLD, 18));
 
-        realAccountsLabel = new JLabel("Реальные счета: --");
-        sandboxAccountsLabel = new JLabel("Sandbox счета: --");
-        realAccountsLabel.setFont(new Font("Arial", Font.BOLD, 14));
-        sandboxAccountsLabel.setFont(new Font("Arial", Font.BOLD, 14));
+        accountsLabel = new JLabel("Счета: --");
+        accountsLabel.setFont(new Font("Arial", Font.BOLD, 14));
 
         refreshButton = new JButton("🔄 Обновить счета");
         refreshButton.addActionListener(e -> updateAccounts());
 
-        portfolioButton = new JButton("💼 Портфель");
+        portfolioButton = new JButton("💼 Загрузить портфель");
         portfolioButton.addActionListener(e -> showPortfolio());
 
         String[] accountColumns = {"ID", "Название", "Тип", "Статус"};
-        realAccountsTable = new JTable(new DefaultTableModel(new Object[][]{{"Загрузка..."}}, accountColumns));
-        sandboxAccountsTable = new JTable(new DefaultTableModel(new Object[][]{{"Загрузка..."}}, accountColumns));
+        accountsTable = new JTable(new DefaultTableModel(new Object[][]{{"Загрузка..."}}, accountColumns));
 
         String[] portfolioColumns = {"FIGI", "Тикер", "Тип", "Площадка", "Кол-во", "Средняя цена", "Стоимость"};
         portfolioTable = new JTable(new DefaultTableModel(new Object[][]{{"--"}}, portfolioColumns));
 
-        JScrollPane realScroll = new JScrollPane(realAccountsTable);
-        JScrollPane sandboxScroll = new JScrollPane(sandboxAccountsTable);
+        JScrollPane accountsScroll = new JScrollPane(accountsTable);
         JScrollPane portfolioScroll = new JScrollPane(portfolioTable);
 
         // Верхняя панель с заголовком и кнопками
         JPanel topPanel = new JPanel();
         topPanel.setLayout(new BoxLayout(topPanel, BoxLayout.Y_AXIS));
         topPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-
         topPanel.add(title);
         topPanel.add(Box.createVerticalStrut(10));
 
-        JPanel statsPanel = new JPanel(new GridLayout(1, 2, 10, 0));
-        statsPanel.add(realAccountsLabel);
-        statsPanel.add(sandboxAccountsLabel);
+        JPanel statsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        statsPanel.add(accountsLabel);
         topPanel.add(statsPanel);
-
         topPanel.add(Box.createVerticalStrut(10));
 
         JPanel buttonsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 0));
@@ -78,16 +72,10 @@ public class TinkoffInvestGui extends JFrame {
         centerPanel.setLayout(new BoxLayout(centerPanel, BoxLayout.Y_AXIS));
         centerPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        JLabel realLabel = new JLabel("📊 Реальные счета:");
-        realLabel.setFont(new Font("Arial", Font.BOLD, 12));
-        centerPanel.add(realLabel);
-        centerPanel.add(realScroll);
-        centerPanel.add(Box.createVerticalStrut(10));
-
-        JLabel sandboxLabel = new JLabel("🏖️ Sandbox счета:");
-        sandboxLabel.setFont(new Font("Arial", Font.BOLD, 12));
-        centerPanel.add(sandboxLabel);
-        centerPanel.add(sandboxScroll);
+        JLabel accountsTableLabel = new JLabel("📊 Мои счета:");
+        accountsTableLabel.setFont(new Font("Arial", Font.BOLD, 12));
+        centerPanel.add(accountsTableLabel);
+        centerPanel.add(accountsScroll);
         centerPanel.add(Box.createVerticalStrut(10));
 
         JLabel portfolioLabel = new JLabel("💼 Портфель:");
@@ -101,7 +89,6 @@ public class TinkoffInvestGui extends JFrame {
 
         // Запускаем автообновление портфеля
         startPortfolioAutoUpdate();
-
         updateAccounts();
     }
 
@@ -122,34 +109,32 @@ public class TinkoffInvestGui extends JFrame {
         refreshButton.setEnabled(false);
         refreshButton.setText("⏳ Обновление...");
 
-        SwingWorker<Void, Void> worker = new SwingWorker<>() {
+        SwingWorker<Void, Void> worker = new SwingWorker<Void, Void>() {
             @Override
             protected Void doInBackground() {
                 try {
-                    ConnectorConfig realConfig = new ConnectorConfig("invest.properties");
-                    if (realConfig.getToken() != null && !realConfig.getToken().trim().isEmpty()) {
-                        AccountsService realService = new AccountsService(realConfig.getToken());
-                        int realCount = realService.getAccountsCount();
-                        List<Account> realAccounts = realService.getAccountsList();
-                        SwingUtilities.invokeLater(() -> {
-                            realAccountsLabel.setText("Реальные счета: " + realCount);
-                            updateAccountsTable(realAccountsTable, realAccounts);
-                        });
-                    }
+                    AccountsService service = new AccountsService();
+                    int count = service.getAccountsCount();
+                    GetAccountsResponse accounts = service.getAccounts();
 
-                    ConnectorConfig sandboxConfig = new ConnectorConfig("sandbox.properties");
-                    AccountsService sandboxService = new AccountsService(sandboxConfig.getToken());
-                    int sandboxCount = sandboxService.getAccountsCount();
-                    List<Account> sandboxAccounts = sandboxService.getAccountsList();
                     SwingUtilities.invokeLater(() -> {
-                        sandboxAccountsLabel.setText("Sandbox счета: " + sandboxCount);
-                        updateAccountsTable(sandboxAccountsTable, sandboxAccounts);
+                        accountsLabel.setText("Счета: " + count);
+                        updateAccountsTable(accountsTable, accounts.getAccountsList());
+
+                        // Выбираем первый счет для портфеля по умолчанию
+                        if (!accounts.getAccountsList().isEmpty()) {
+                            selectedAccountId = accounts.getAccountsList().get(0).getId();
+                            System.out.println("✓ Выбран счет по умолчанию: " + selectedAccountId);
+                        }
                     });
+
                 } catch (Exception e) {
                     SwingUtilities.invokeLater(() ->
                             JOptionPane.showMessageDialog(TinkoffInvestGui.this,
-                                    "Ошибка: " + e.getMessage(), "Ошибка", JOptionPane.ERROR_MESSAGE));
+                                    "Ошибка загрузки счетов: " + e.getMessage(),
+                                    "Ошибка", JOptionPane.ERROR_MESSAGE));
                 }
+
                 return null;
             }
 
@@ -159,45 +144,59 @@ public class TinkoffInvestGui extends JFrame {
                 refreshButton.setText("🔄 Обновить счета");
             }
         };
+
         worker.execute();
     }
 
     private void showPortfolio() {
-        portfolioButton.setEnabled(false);
-        portfolioButton.setText("⏳ Загрузка...");
+        if (selectedAccountId == null || selectedAccountId.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "Сначала загрузи счета", "Внимание", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
 
-        SwingWorker<Void, Void> worker = new SwingWorker<>() {
+        portfolioButton.setEnabled(false);
+        portfolioButton.setText("⏳ Загрузка портфеля...");
+
+        SwingWorker<Void, Void> worker = new SwingWorker<Void, Void>() {
             @Override
             protected Void doInBackground() {
                 try {
-                    ConnectorConfig realConfig = new ConnectorConfig("invest.properties");
-                    if (realConfig.getToken() != null && !realConfig.getToken().trim().isEmpty()) {
-                        PortfolioService service = new PortfolioService(realConfig.getToken());
-                        PortfolioResponse portfolio = service.getPortfolio(selectedAccountId);
-                        SwingUtilities.invokeLater(() -> updatePortfolioTable(portfolio));
-                    }
+                    PortfolioService service = new PortfolioService(
+                            ConnectorConfig.getApiToken(),
+                            ConnectorConfig.API_URL,
+                            ConnectorConfig.API_PORT
+                    );
+                    PortfolioResponse portfolio = service.getPortfolio(selectedAccountId);
+
+                    SwingUtilities.invokeLater(() -> updatePortfolioTable(portfolio));
+
                 } catch (Exception e) {
                     SwingUtilities.invokeLater(() ->
                             JOptionPane.showMessageDialog(TinkoffInvestGui.this,
-                                    "Ошибка: " + e.getMessage(), "Ошибка", JOptionPane.ERROR_MESSAGE));
+                                    "Ошибка загрузки портфеля: " + e.getMessage(),
+                                    "Ошибка", JOptionPane.ERROR_MESSAGE));
                 }
+
                 return null;
             }
 
             @Override
             protected void done() {
                 portfolioButton.setEnabled(true);
-                portfolioButton.setText("💼 Портфель");
+                portfolioButton.setText("💼 Загрузить портфель");
             }
         };
+
         worker.execute();
     }
 
-    private void updateAccountsTable(JTable table, List<Account> accounts) {
+    private void updateAccountsTable(JTable table, java.util.List<Account> accounts) {
         if (accounts.isEmpty()) {
-            table.setModel(new DefaultTableModel(new Object[][]{{"Нет счетов"}}, new String[]{"Детали"}));
+            table.setModel(new DefaultTableModel(new Object[][]{{"Нет счетов"}}, new String[]{"Информация"}));
             return;
         }
+
         Object[][] data = new Object[accounts.size()][4];
         for (int i = 0; i < accounts.size(); i++) {
             Account account = accounts.get(i);
@@ -206,23 +205,22 @@ public class TinkoffInvestGui extends JFrame {
             data[i][2] = formatAccountType(account.getType());
             data[i][3] = formatAccountStatus(account.getStatus());
         }
+
         table.setModel(new DefaultTableModel(data, new String[]{"ID", "Название", "Тип", "Статус"}));
     }
 
     private void updatePortfolioTable(PortfolioResponse portfolio) {
         if (portfolio.getPositionsCount() == 0) {
             portfolioTable.setModel(new DefaultTableModel(
-                    new Object[][]{{"Позиций нет"}},
+                    new Object[][]{{"Нет позиций"}},
                     new String[]{"Информация"}));
             return;
         }
 
-        // Теперь 7 колонок (добавили Type и Code отдельно)
         Object[][] data = new Object[portfolio.getPositionsCount()][7];
         for (int i = 0; i < portfolio.getPositionsCount(); i++) {
             PortfolioPosition position = portfolio.getPositions(i);
 
-            // Получаем данные позиции
             String figi = PortfolioService.getFigi(position);
             String ticker = PortfolioService.getTicker(position);
             String instrumentType = PortfolioService.getInstrumentType(position);
@@ -230,7 +228,6 @@ public class TinkoffInvestGui extends JFrame {
             String quantity = PortfolioService.formatQuantity(position.getQuantity());
             String avgPrice = PortfolioService.formatPrice(position.getAveragePositionPrice());
 
-            // Рассчитываем стоимость = количество * средняя цена
             double qty = position.getQuantity().getUnits() + position.getQuantity().getNano() / 1e9;
             double price = position.getAveragePositionPrice().getUnits() +
                     position.getAveragePositionPrice().getNano() / 1e9;
@@ -245,13 +242,14 @@ public class TinkoffInvestGui extends JFrame {
             data[i][5] = avgPrice;
             data[i][6] = cost;
         }
+
         portfolioTable.setModel(new DefaultTableModel(data,
                 new String[]{"FIGI", "Тикер", "Тип", "Площадка", "Кол-во", "Средняя цена", "Стоимость"}));
     }
 
     private String formatAccountType(AccountType type) {
         switch (type) {
-            case ACCOUNT_TYPE_TINKOFF: return "Тинькофф брокерский";
+            case ACCOUNT_TYPE_TINKOFF: return "Брокерский";
             case ACCOUNT_TYPE_TINKOFF_IIS: return "ИИС";
             case ACCOUNT_TYPE_INVEST_BOX: return "Инвесткопилка";
             default: return type.name();
@@ -302,6 +300,7 @@ public class TinkoffInvestGui extends JFrame {
             } catch (Exception e) {
                 e.printStackTrace();
             }
+
             new TinkoffInvestGui().setVisible(true);
         });
     }
