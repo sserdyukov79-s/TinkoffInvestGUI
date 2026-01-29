@@ -18,7 +18,6 @@ public class TinkoffInvestGui extends JFrame {
     private JLabel accountsLabel;
     private JTable accountsTable;
     private JTable portfolioTable;
-    private JTable bondsTable;
     private JButton refreshButton;
     private JButton portfolioButton;
     private JButton bondsButton;
@@ -30,7 +29,7 @@ public class TinkoffInvestGui extends JFrame {
         setTitle("Tinkoff Invest Accounts");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLayout(new BorderLayout());
-        setSize(1400, 900);
+        setSize(1400, 800);
         setLocationRelativeTo(null);
 
         JLabel title = new JLabel("🧾 Tinkoff Invest - Портфолио и счета", SwingConstants.CENTER);
@@ -52,14 +51,10 @@ public class TinkoffInvestGui extends JFrame {
         accountsTable = new JTable(new DefaultTableModel(new Object[][]{{"Загрузка..."}}, accountColumns));
 
         String[] portfolioColumns = {"FIGI", "Тикер", "Тип", "Площадка", "Кол-во", "Средняя цена", "Стоимость"};
-        portfolioTable = new JTable(new DefaultTableModel(new Object[][]{{"--"}}, portfolioColumns));
-
-        String[] bondsColumns = {"FIGI", "Ticker", "Class Code", "ISIN", "Название", "Валюта инструмента", "Валюта номинала", "Номинал", "Дата погашения", "DlongClient", "Плавающий купон", "Амортизация", "Риск"};
-        bondsTable = new JTable(new DefaultTableModel(new Object[][]{{"--"}}, bondsColumns));
+        portfolioTable = new JTable(new DefaultTableModel(new Object[][]{{"Загрузка..."}}, portfolioColumns));
 
         JScrollPane accountsScroll = new JScrollPane(accountsTable);
         JScrollPane portfolioScroll = new JScrollPane(portfolioTable);
-        JScrollPane bondsScroll = new JScrollPane(bondsTable);
 
         // Верхняя панель с заголовком и кнопками
         JPanel topPanel = new JPanel();
@@ -94,12 +89,6 @@ public class TinkoffInvestGui extends JFrame {
         portfolioLabel.setFont(new Font("Arial", Font.BOLD, 12));
         centerPanel.add(portfolioLabel);
         centerPanel.add(portfolioScroll);
-        centerPanel.add(Box.createVerticalStrut(10));
-
-        JLabel bondsLabel = new JLabel("🔗 Облигации:");
-        bondsLabel.setFont(new Font("Arial", Font.BOLD, 12));
-        centerPanel.add(bondsLabel);
-        centerPanel.add(bondsScroll);
 
         // Добавляем панели на форму
         add(topPanel, BorderLayout.NORTH);
@@ -108,7 +97,8 @@ public class TinkoffInvestGui extends JFrame {
         // Запускаем автообновление портфеля
         startPortfolioAutoUpdate();
 
-        updateAccounts();
+        // Загружаем счета и портфель при старте
+        updateAccountsAndPortfolio();
     }
 
     /**
@@ -122,6 +112,65 @@ public class TinkoffInvestGui extends JFrame {
                 PORTFOLIO_UPDATE_INTERVAL_MINUTES,
                 java.util.concurrent.TimeUnit.MINUTES
         );
+    }
+
+    /**
+     * Загружает счета и портфель при старте приложения
+     */
+    private void updateAccountsAndPortfolio() {
+        refreshButton.setEnabled(false);
+        refreshButton.setText("⏳ Обновление...");
+
+        SwingWorker<Void, Void> worker = new SwingWorker<>() {
+            @Override
+            protected Void doInBackground() {
+                try {
+                    // 1. Загружаем счета
+                    AccountsService service = new AccountsService();
+                    int count = service.getAccountsCount();
+                    GetAccountsResponse accounts = service.getAccounts();
+
+                    SwingUtilities.invokeLater(() -> {
+                        accountsLabel.setText("Счета: " + count);
+                        updateAccountsTable(accountsTable, accounts.getAccountsList());
+
+                        // Выбираем первый счет для портфеля по умолчанию
+                        if (!accounts.getAccountsList().isEmpty()) {
+                            selectedAccountId = accounts.getAccountsList().get(0).getId();
+                            System.out.println("✓ Выбран счет по умолчанию: " + selectedAccountId);
+                        }
+                    });
+
+                    // 2. Загружаем портфель для первого счета
+                    if (!accounts.getAccountsList().isEmpty()) {
+                        String accountId = accounts.getAccountsList().get(0).getId();
+                        PortfolioService portfolioService = new PortfolioService(
+                                ConnectorConfig.getApiToken(),
+                                ConnectorConfig.API_URL,
+                                ConnectorConfig.API_PORT
+                        );
+                        PortfolioResponse portfolio = portfolioService.getPortfolio(accountId);
+
+                        SwingUtilities.invokeLater(() -> updatePortfolioTable(portfolio));
+                    }
+
+                } catch (Exception e) {
+                    SwingUtilities.invokeLater(() ->
+                            JOptionPane.showMessageDialog(TinkoffInvestGui.this,
+                                    "Ошибка загрузки данных: " + e.getMessage(),
+                                    "Ошибка", JOptionPane.ERROR_MESSAGE));
+                }
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                refreshButton.setEnabled(true);
+                refreshButton.setText("🔄 Обновить счета");
+            }
+        };
+
+        worker.execute();
     }
 
     private void updateAccounts() {
@@ -238,14 +287,13 @@ public class TinkoffInvestGui extends JFrame {
                     // 3. Проверяем количество строк в БД
                     int totalRows = repository.getRowCount();
 
-                    // 4. Обновляем GUI таблицу
+                    // 4. Показываем сообщение об успехе
                     SwingUtilities.invokeLater(() -> {
-                        updateBondsTable(bonds);
                         JOptionPane.showMessageDialog(TinkoffInvestGui.this,
-                                "✓ Экспорт завершён!\n" +
+                                "✓ Экспорт завершён успешно!\n\n" +
                                         "Таблица: public.exportdata\n" +
-                                        "Облигаций: " + exportedCount + "\n" +
-                                        "Всего строк (с заголовком): " + totalRows,
+                                        "Экспортировано облигаций: " + exportedCount + "\n" +
+                                        "Всего строк в БД (с заголовком): " + totalRows,
                                 "Успех", JOptionPane.INFORMATION_MESSAGE);
                     });
 
@@ -267,86 +315,6 @@ public class TinkoffInvestGui extends JFrame {
         };
 
         worker.execute();
-    }
-
-    /**
-     * Обновляет таблицу облигаций (пока оставляем для визуализации)
-     */
-    private void updateBondsTable(java.util.List<Bond> bonds) {
-        if (bonds.isEmpty()) {
-            bondsTable.setModel(new DefaultTableModel(
-                    new Object[][]{{"Нет облигаций"}},
-                    new String[]{"Информация"}));
-            return;
-        }
-
-        int rowCount = Math.min(bonds.size(), 100);
-        Object[][] data = new Object[rowCount][13];
-
-        for (int i = 0; i < rowCount; i++) {
-            Bond bond = bonds.get(i);
-
-            data[i][0] = bond.getFigi();
-            data[i][1] = bond.getTicker();
-            data[i][2] = bond.getClassCode();
-            data[i][3] = bond.getIsin();
-            data[i][4] = bond.getName();
-            data[i][5] = bond.getCurrency().toUpperCase();
-
-            if (bond.hasInitialNominal()) {
-                data[i][6] = bond.getInitialNominal().getCurrency().toUpperCase();
-            } else {
-                data[i][6] = "--";
-            }
-
-            if (bond.hasInitialNominal()) {
-                double nominal = bond.getInitialNominal().getUnits() +
-                        bond.getInitialNominal().getNano() / 1e9;
-                data[i][7] = String.format("%.0f", nominal);
-            } else {
-                data[i][7] = "--";
-            }
-
-            if (bond.hasMaturityDate()) {
-                long seconds = bond.getMaturityDate().getSeconds();
-                java.time.LocalDate date = java.time.LocalDateTime
-                        .ofEpochSecond(seconds, 0, java.time.ZoneOffset.UTC)
-                        .toLocalDate();
-                data[i][8] = date.toString();
-            } else {
-                data[i][8] = "--";
-            }
-
-            if (bond.hasDlongMin()) {
-                double dlongClient = bond.getDlongMin().getUnits() +
-                        bond.getDlongMin().getNano() / 1e9;
-                data[i][9] = String.format("%.2f", dlongClient);
-            } else {
-                data[i][9] = "0";
-            }
-
-            data[i][10] = bond.getFloatingCouponFlag() ? "Да" : "Нет";
-            data[i][11] = bond.getAmortizationFlag() ? "Да" : "Нет";
-
-            String risk = formatRiskLevel(bond.getRiskLevel());
-            data[i][12] = risk;
-        }
-
-        bondsTable.setModel(new DefaultTableModel(data,
-                new String[]{"FIGI", "Ticker", "Class Code", "ISIN", "Название", "Валюта инструмента",
-                        "Валюта номинала", "Номинал", "Дата погашения", "DlongClient",
-                        "Плавающий купон", "Амортизация", "Риск"}));
-
-        System.out.println("✓ Таблица облигаций обновлена (" + rowCount + " записей)");
-    }
-
-    private String formatRiskLevel(RiskLevel riskLevel) {
-        switch (riskLevel) {
-            case RISK_LEVEL_LOW: return "Низкий";
-            case RISK_LEVEL_MODERATE: return "Средний";
-            case RISK_LEVEL_HIGH: return "Высокий";
-            default: return riskLevel.name();
-        }
     }
 
     private void updateAccountsTable(JTable table, java.util.List<Account> accounts) {
