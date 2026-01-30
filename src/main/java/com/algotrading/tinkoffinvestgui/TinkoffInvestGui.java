@@ -17,6 +17,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import com.algotrading.tinkoffinvestgui.api.OrdersService;
 
 public class TinkoffInvestGui extends JFrame {
 
@@ -104,10 +105,19 @@ public class TinkoffInvestGui extends JFrame {
         deleteInstrumentButton = new JButton("🗑️ Удалить");
         deleteInstrumentButton.addActionListener(e -> deleteSelectedInstrument());
 
+        JButton placeOrdersButton = new JButton("📤 Выставить заявки");
+        placeOrdersButton.addActionListener(e -> showOrdersJson());
+        placeOrdersButton.setFont(new Font("Arial", Font.BOLD, 12));
+        placeOrdersButton.setBackground(new Color(46, 204, 113));
+        placeOrdersButton.setForeground(Color.WHITE);
+        placeOrdersButton.setFocusPainted(false);
+
         buttonsPanel.add(refreshInstrumentsButton);
         buttonsPanel.add(addInstrumentButton);
         buttonsPanel.add(editInstrumentButton);
         buttonsPanel.add(deleteInstrumentButton);
+        buttonsPanel.add(Box.createHorizontalStrut(20)); // Отступ
+        buttonsPanel.add(placeOrdersButton);
 
         // Таблица инструментов
         String[] columns = {"ID", "Дата", "FIGI", "Название", "ISIN", "Приоритет",
@@ -126,6 +136,93 @@ public class TinkoffInvestGui extends JFrame {
         panel.add(centerPanel, BorderLayout.CENTER);
 
         return panel;
+    }
+    /**
+     * Показывает JSON всех заявок
+     */
+    private void showOrdersJson() {
+        try {
+            // Получаем все инструменты из БД
+            List<Instrument> instruments = instrumentsRepository.findAll();
+
+            if (instruments.isEmpty()) {
+                JOptionPane.showMessageDialog(this,
+                        "Нет инструментов для формирования заявок",
+                        "Внимание", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            // Проверяем, что accountId выбран
+            if (selectedAccountId == null || selectedAccountId.isEmpty()) {
+                JOptionPane.showMessageDialog(this,
+                        "Не выбран счёт. Перейдите на вкладку 'Портфель и счета' и загрузите счета.",
+                        "Ошибка", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            // Формируем JSON заявок
+            String ordersJson = OrdersService.createOrdersJson(instruments, selectedAccountId);
+
+            // Создаём диалог с JSON
+            JDialog dialog = new JDialog(this, "JSON заявок для отправки", false);
+            dialog.setSize(800, 600);
+            dialog.setLocationRelativeTo(this);
+            dialog.setLayout(new BorderLayout(10, 10));
+
+            // Заголовок
+            JLabel titleLabel = new JLabel("📤 Сформированные заявки (JSON)", SwingConstants.CENTER);
+            titleLabel.setFont(new Font("Arial", Font.BOLD, 16));
+            titleLabel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+            dialog.add(titleLabel, BorderLayout.NORTH);
+
+            // Текстовая область с JSON
+            JTextArea jsonArea = new JTextArea(ordersJson);
+            jsonArea.setEditable(false);
+            jsonArea.setFont(new Font("Monospaced", Font.PLAIN, 12));
+            jsonArea.setLineWrap(false);
+            jsonArea.setWrapStyleWord(false);
+
+            JScrollPane scrollPane = new JScrollPane(jsonArea);
+            scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+            dialog.add(scrollPane, BorderLayout.CENTER);
+
+            // Панель кнопок
+            JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 10));
+
+            JButton copyButton = new JButton("📋 Скопировать в буфер");
+            copyButton.addActionListener(e -> {
+                java.awt.datatransfer.StringSelection selection =
+                        new java.awt.datatransfer.StringSelection(ordersJson);
+                java.awt.Toolkit.getDefaultToolkit()
+                        .getSystemClipboard()
+                        .setContents(selection, selection);
+                JOptionPane.showMessageDialog(dialog, "✓ JSON скопирован в буфер обмена!");
+            });
+
+            JButton closeButton = new JButton("❌ Закрыть");
+            closeButton.addActionListener(e -> dialog.dispose());
+
+            buttonPanel.add(copyButton);
+            buttonPanel.add(closeButton);
+            dialog.add(buttonPanel, BorderLayout.SOUTH);
+
+            // Информационная панель
+            JPanel infoPanel = new JPanel(new BorderLayout());
+            JLabel infoLabel = new JLabel(
+                    "<html><b>AccountID:</b> " + selectedAccountId +
+                            " | <b>Инструментов:</b> " + instruments.size() + "</html>");
+            infoLabel.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
+            infoPanel.add(infoLabel, BorderLayout.WEST);
+            dialog.add(infoPanel, BorderLayout.SOUTH);
+
+            dialog.setVisible(true);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            JOptionPane.showMessageDialog(this,
+                    "Ошибка формирования заявок: " + e.getMessage(),
+                    "Ошибка", JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     /**
