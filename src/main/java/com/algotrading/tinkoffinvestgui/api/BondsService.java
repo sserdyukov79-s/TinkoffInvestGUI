@@ -33,9 +33,9 @@ public class BondsService extends BaseApiService {
                     .setInstrumentStatus(InstrumentStatus.INSTRUMENT_STATUS_BASE)
                     .build();
 
-            System.out.println("📡 Запрашиваю список облигаций...");
+            log.info("📡 Запрашиваю список облигаций...");
             BondsResponse response = instrumentsService.bonds(request);
-            System.out.println("✓ Получено облигаций: " + response.getInstrumentsCount());
+            log.info("✓ Получено облигаций: " + response.getInstrumentsCount());
 
             return response;
 

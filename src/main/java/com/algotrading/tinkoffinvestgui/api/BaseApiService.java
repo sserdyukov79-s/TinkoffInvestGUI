@@ -3,12 +3,18 @@ package com.algotrading.tinkoffinvestgui.api;
 import io.grpc.ManagedChannel;
 import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
 import java.util.concurrent.TimeUnit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Базовый класс для API сервисов Tinkoff Invest.
  * Управляет подключением к gRPC серверу.
  */
-public class BaseApiService {
+public abstract class BaseApiService {
+
+    // ✅ ДОБАВЛЯЕМ ЛОГГЕР
+    protected static final Logger log = LoggerFactory.getLogger(BaseApiService.class);
+
     protected String token;
     protected String apiUrl;
     protected int apiPort;
@@ -18,10 +24,9 @@ public class BaseApiService {
         this.token = token;
         this.apiUrl = apiUrl;
         this.apiPort = apiPort;
-
-        System.out.println("🔌 Инициализирую подключение к API:");
-        System.out.println("   URL: " + apiUrl + ":" + apiPort);
-        System.out.println("   Token: " + (token != null ? token.substring(0, Math.min(10, token.length())) + "..." : "NONE"));
+        log.info("🔌 Инициализирую подключение к API:");
+        log.info("   URL: " + apiUrl + ":" + apiPort);
+        log.info("   Token: " + (token != null ? token.substring(0, Math.min(10, token.length())) + "..." : "NONE"));
     }
 
     /**
@@ -29,7 +34,7 @@ public class BaseApiService {
      */
     protected ManagedChannel getChannel() {
         if (channel == null || channel.isShutdown()) {
-            System.out.println("📡 Создаю новое gRPC соединение...");
+            log.info("📡 Создаю новое gRPC соединение...");
             channel = NettyChannelBuilder
                     .forAddress(apiUrl, apiPort)
                     .useTransportSecurity()
@@ -40,7 +45,7 @@ public class BaseApiService {
                     .retryBufferSize(16 * 1024 * 1024)
                     .perRpcBufferLimit(1024 * 1024)
                     .build();
-            System.out.println("✓ gRPC соединение установлено");
+            log.info("✓ gRPC соединение установлено");
         }
         return channel;
     }
@@ -50,13 +55,10 @@ public class BaseApiService {
      */
     protected io.grpc.Metadata getAuthorizationHeaders() {
         io.grpc.Metadata headers = new io.grpc.Metadata();
-
         // Ключ для авторизации в Tinkoff API
         io.grpc.Metadata.Key<String> authKey =
                 io.grpc.Metadata.Key.of("authorization", io.grpc.Metadata.ASCII_STRING_MARSHALLER);
-
         headers.put(authKey, "Bearer " + token);
-
         return headers;
     }
 
@@ -67,10 +69,12 @@ public class BaseApiService {
         if (token == null || token.trim().isEmpty()) {
             throw new RuntimeException("❌ Токен пуст! Проверь invest.properties или БД");
         }
+
         if (!token.startsWith("t.")) {
-            System.out.println("⚠️  Внимание: токен не начинается с 't.', может быть невалидным");
+            log.info("⚠️ Внимание: токен не начинается с 't.', может быть невалидным");
         }
-        System.out.println("✓ Токен валиден (длина: " + token.length() + ")");
+
+        log.info("✓ Токен валиден (длина: " + token.length() + ")");
     }
 
     /**
@@ -79,12 +83,10 @@ public class BaseApiService {
     protected RuntimeException handleApiError(String context, Exception e) {
         String errorMsg = "Ошибка при " + context + ": " + e.getMessage();
         System.err.println("❌ " + errorMsg);
-
         if (e instanceof io.grpc.StatusRuntimeException) {
             io.grpc.StatusRuntimeException sre = (io.grpc.StatusRuntimeException) e;
             System.err.println("   Код ошибки: " + sre.getStatus().getCode());
             System.err.println("   Описание: " + sre.getStatus().getDescription());
-
             // Подсказки для типичных ошибок
             switch (sre.getStatus().getCode()) {
                 case UNAVAILABLE:
@@ -103,7 +105,6 @@ public class BaseApiService {
                     break;
             }
         }
-
         return new RuntimeException(errorMsg, e);
     }
 

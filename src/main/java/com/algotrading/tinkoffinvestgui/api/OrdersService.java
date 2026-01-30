@@ -18,9 +18,56 @@ public class OrdersService {
     private static int orderCounter = 0;
 
     /**
-     * Формирует JSON заявки для инструмента
+     * Формирует список заявок для инструмента (может быть 0, 1 или 2 заявки)
      */
-    public static String createOrderJson(Instrument instrument, String accountId) {
+    public static List<OrderRequest> createOrdersForInstrument(Instrument instrument, String accountId) {
+        List<OrderRequest> orders = new ArrayList<>();
+
+        // Проверяем заявку на ПОКУПКУ
+        if (instrument.getBuyQuantity() != null && instrument.getBuyQuantity() > 0) {
+            OrderRequest buyOrder = createOrder(
+                    instrument,
+                    accountId,
+                    "ORDER_DIRECTION_BUY",
+                    instrument.getBuyQuantity(),
+                    instrument.getBuyPrice()
+            );
+            if (buyOrder != null) {
+                orders.add(buyOrder);
+            }
+        }
+
+        // Проверяем заявку на ПРОДАЖУ
+        if (instrument.getSellQuantity() != null && instrument.getSellQuantity() > 0) {
+            OrderRequest sellOrder = createOrder(
+                    instrument,
+                    accountId,
+                    "ORDER_DIRECTION_SELL",
+                    instrument.getSellQuantity(),
+                    instrument.getSellPrice()
+            );
+            if (sellOrder != null) {
+                orders.add(sellOrder);
+            }
+        }
+
+        return orders;
+    }
+
+    /**
+     * Создаёт одну заявку
+     */
+    private static OrderRequest createOrder(
+            Instrument instrument,
+            String accountId,
+            String direction,
+            Integer quantity,
+            java.math.BigDecimal price) {
+
+        if (quantity == null || quantity <= 0) {
+            return null;
+        }
+
         OrderRequest order = new OrderRequest();
 
         // instrumentId (figi)
@@ -29,25 +76,15 @@ public class OrdersService {
         // accountId
         order.accountId = accountId;
 
-        // Определяем направление и параметры на основе заполненных полей
-        if (instrument.getBuyQuantity() != null && instrument.getBuyQuantity() > 0) {
-            // Покупка
-            order.direction = "ORDER_DIRECTION_BUY";
-            order.quantity = String.valueOf(instrument.getBuyQuantity());
+        // direction
+        order.direction = direction;
 
-            if (instrument.getBuyPrice() != null) {
-                order.price = convertToQuotation(instrument.getBuyPrice());
-            }
-        } else if (instrument.getSellQuantity() != null && instrument.getSellQuantity() > 0) {
-            // Продажа
-            order.direction = "ORDER_DIRECTION_SELL";
-            order.quantity = String.valueOf(instrument.getSellQuantity());
+        // quantity
+        order.quantity = String.valueOf(quantity);
 
-            if (instrument.getSellPrice() != null) {
-                order.price = convertToQuotation(instrument.getSellPrice());
-            }
-        } else {
-            return null; // Нет данных для заявки
+        // price
+        if (price != null) {
+            order.price = convertToQuotation(price);
         }
 
         // orderType
@@ -62,7 +99,33 @@ public class OrdersService {
         // priceType (по умолчанию - валюта)
         order.priceType = "PRICE_TYPE_CURRENCY";
 
-        return gson.toJson(order);
+        return order;
+    }
+
+    /**
+     * Формирует JSON заявки для инструмента (УСТАРЕЛО - используйте createOrdersForInstrument)
+     */
+    @Deprecated
+    public static String createOrderJson(Instrument instrument, String accountId) {
+        List<OrderRequest> orders = createOrdersForInstrument(instrument, accountId);
+        if (orders.isEmpty()) {
+            return null;
+        }
+        return gson.toJson(orders.get(0)); // Возвращаем только первую для совместимости
+    }
+
+    /**
+     * Формирует JSON для всех инструментов (ОБНОВЛЕНО)
+     */
+    public static String createOrdersJson(List<Instrument> instruments, String accountId) {
+        List<OrderRequest> allOrders = new ArrayList<>();
+
+        for (Instrument instrument : instruments) {
+            List<OrderRequest> orders = createOrdersForInstrument(instrument, accountId);
+            allOrders.addAll(orders);
+        }
+
+        return gson.toJson(allOrders);
     }
 
     /**
@@ -91,23 +154,6 @@ public class OrdersService {
         quotation.nano = nanoDecimal.setScale(0, java.math.RoundingMode.HALF_UP).intValue();
 
         return quotation;
-    }
-
-    /**
-     * Формирует JSON для всех инструментов
-     */
-    public static String createOrdersJson(List<Instrument> instruments, String accountId) {
-        List<OrderRequest> orders = new ArrayList<>();
-
-        for (Instrument instrument : instruments) {
-            String json = createOrderJson(instrument, accountId);
-            if (json != null) {
-                OrderRequest order = gson.fromJson(json, OrderRequest.class);
-                orders.add(order);
-            }
-        }
-
-        return gson.toJson(orders);
     }
 
     /**

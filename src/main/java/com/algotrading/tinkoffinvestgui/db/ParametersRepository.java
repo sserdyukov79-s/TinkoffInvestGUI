@@ -1,6 +1,8 @@
 package com.algotrading.tinkoffinvestgui.db;
 
 import com.algotrading.tinkoffinvestgui.config.DatabaseConfig;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.sql.*;
 
@@ -9,6 +11,10 @@ import java.sql.*;
  * Позволяет читать и записывать параметры (токены, аккаунты и т.д.)
  */
 public class ParametersRepository {
+
+    // ✅ ДОБАВЛЯЕМ ЛОГГЕР
+    private static final Logger log = LoggerFactory.getLogger(ParametersRepository.class);
+
     private final String dbUrl;
     private final String dbUsername;
     private final String dbPassword;
@@ -44,6 +50,7 @@ public class ParametersRepository {
                     return rs.getString("value");
                 }
             }
+
         } catch (SQLException e) {
             throw new RuntimeException("Ошибка получения параметра " + parameterName + ": " + e.getMessage(), e);
         }
@@ -65,8 +72,8 @@ public class ParametersRepository {
             stmt.setString(1, parameterName);
             stmt.setString(2, value);
             stmt.executeUpdate();
+            log.info("Параметр {} сохранен в БД", parameterName);
 
-            System.out.println("Параметр " + parameterName + " сохранен в БД");
         } catch (SQLException e) {
             throw new RuntimeException("Ошибка сохранения параметра " + parameterName + ": " + e.getMessage(), e);
         }
@@ -79,7 +86,7 @@ public class ParametersRepository {
         try (Connection conn = DriverManager.getConnection(dbUrl, dbUsername, dbPassword)) {
             return conn.isValid(2);
         } catch (SQLException e) {
-            System.err.println("Ошибка подключения к БД: " + e.getMessage());
+            log.error("Ошибка подключения к БД: {}", e.getMessage());
             return false;
         }
     }
