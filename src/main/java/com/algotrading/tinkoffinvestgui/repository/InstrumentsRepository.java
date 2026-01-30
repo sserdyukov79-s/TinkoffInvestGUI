@@ -2,6 +2,8 @@ package com.algotrading.tinkoffinvestgui.repository;
 
 import com.algotrading.tinkoffinvestgui.config.ConnectorConfig;
 import com.algotrading.tinkoffinvestgui.entity.Instrument;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.sql.*;
 import java.time.LocalDate;
@@ -13,11 +15,13 @@ import java.util.List;
  */
 public class InstrumentsRepository {
 
+    // ✅ ДОБАВЛЯЕМ ЛОГГЕР
+    private static final Logger log = LoggerFactory.getLogger(InstrumentsRepository.class);
+
     private Connection getConnection() throws SQLException {
         String dbUrl = ConnectorConfig.getPropertyValue("db.url");
         String dbUser = ConnectorConfig.getPropertyValue("db.username");
         String dbPassword = ConnectorConfig.getPropertyValue("db.password");
-
         return DriverManager.getConnection(dbUrl, dbUser, dbPassword);
     }
 
@@ -72,7 +76,7 @@ public class InstrumentsRepository {
      */
     public void save(Instrument instrument) {
         String sql = """
-            INSERT INTO public.instruments 
+            INSERT INTO public.instruments
             (bookdate, figi, name, isin, priority, buy_price, buy_quantity, sell_price, sell_quantity)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
@@ -102,7 +106,7 @@ public class InstrumentsRepository {
             }
 
             pstmt.executeUpdate();
-            System.out.println("✓ Инструмент добавлен: " + instrument.getName());
+            log.info("✓ Инструмент добавлен: {}", instrument.getName());
 
         } catch (SQLException e) {
             throw new RuntimeException("Ошибка сохранения инструмента: " + e.getMessage(), e);
@@ -114,8 +118,8 @@ public class InstrumentsRepository {
      */
     public void update(Instrument instrument) {
         String sql = """
-            UPDATE public.instruments 
-            SET bookdate = ?, figi = ?, name = ?, isin = ?, priority = ?, 
+            UPDATE public.instruments
+            SET bookdate = ?, figi = ?, name = ?, isin = ?, priority = ?,
                 buy_price = ?, buy_quantity = ?, sell_price = ?, sell_quantity = ?
             WHERE id = ?
             """;
@@ -145,9 +149,8 @@ public class InstrumentsRepository {
             }
 
             pstmt.setInt(10, instrument.getId());
-
             pstmt.executeUpdate();
-            System.out.println("✓ Инструмент обновлён: " + instrument.getName());
+            log.info("✓ Инструмент обновлён: {}", instrument.getName());
 
         } catch (SQLException e) {
             throw new RuntimeException("Ошибка обновления инструмента: " + e.getMessage(), e);
@@ -165,7 +168,7 @@ public class InstrumentsRepository {
 
             pstmt.setInt(1, id);
             pstmt.executeUpdate();
-            System.out.println("✓ Инструмент удалён (ID: " + id + ")");
+            log.info("✓ Инструмент удалён (ID: {})", id);
 
         } catch (SQLException e) {
             throw new RuntimeException("Ошибка удаления инструмента: " + e.getMessage(), e);
@@ -201,15 +204,19 @@ public class InstrumentsRepository {
      */
     public int count() {
         String sql = "SELECT COUNT(*) FROM public.instruments";
+
         try (Connection conn = getConnection();
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
+
             if (rs.next()) {
                 return rs.getInt(1);
             }
+
         } catch (SQLException e) {
             throw new RuntimeException("Ошибка подсчета инструментов: " + e.getMessage(), e);
         }
+
         return 0;
     }
 
@@ -218,16 +225,20 @@ public class InstrumentsRepository {
      */
     public LocalDate getLatestBookdate() {
         String sql = "SELECT MAX(bookdate) FROM public.instruments";
+
         try (Connection conn = getConnection();
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
+
             if (rs.next()) {
                 Date date = rs.getDate(1);
                 return date != null ? date.toLocalDate() : LocalDate.now();
             }
+
         } catch (SQLException e) {
             throw new RuntimeException("Ошибка получения последней даты: " + e.getMessage(), e);
         }
+
         return LocalDate.now();
     }
 }

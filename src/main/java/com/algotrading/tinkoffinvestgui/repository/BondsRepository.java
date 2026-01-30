@@ -5,12 +5,15 @@ import ru.tinkoff.piapi.contract.v1.Bond;
 
 import java.sql.*;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Repository для экспорта облигаций в таблицу exportdata
  */
 public class BondsRepository {
 
+    private static final Logger log = LoggerFactory.getLogger(BondsRepository.class);
     private Connection getConnection() throws SQLException {
         String dbUrl = ConnectorConfig.getPropertyValue("db.url");
         String dbUser = ConnectorConfig.getPropertyValue("db.username");
@@ -28,7 +31,7 @@ public class BondsRepository {
         try (Connection conn = getConnection();
              Statement stmt = conn.createStatement()) {
             stmt.execute(sql);
-            System.out.println("✓ Таблица public.exportdata очищена");
+            log.info("✓ Таблица public.exportdata очищена");
         } catch (SQLException e) {
             throw new RuntimeException("Ошибка очистки таблицы: " + e.getMessage(), e);
         }
@@ -62,7 +65,7 @@ public class BondsRepository {
             pstmt.setString(13, "risk_level");
 
             pstmt.executeUpdate();
-            System.out.println("✓ Заголовки полей добавлены");
+            log.info("✓ Заголовки полей добавлены");
 
         } catch (SQLException e) {
             throw new RuntimeException("Ошибка вставки заголовков: " + e.getMessage(), e);
@@ -173,7 +176,7 @@ public class BondsRepository {
                 count++;
             }
 
-            System.out.println("✓ Экспортировано облигаций: " + count);
+            log.info("✓ Экспортировано облигаций: " + count);
 
         } catch (SQLException e) {
             throw new RuntimeException("Ошибка экспорта облигаций: " + e.getMessage(), e);

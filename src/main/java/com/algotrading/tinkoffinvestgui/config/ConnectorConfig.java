@@ -4,12 +4,18 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.sql.*;
 import java.util.Properties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Конфигурация для подключения к Tinkoff Invest API.
  * Параметры загружаются из invest.properties файла.
  */
 public class ConnectorConfig {
+
+    // ✅ ДОБАВЛЯЕМ ЛОГГЕР
+    private static final Logger log = LoggerFactory.getLogger(ConnectorConfig.class);
+
     private static final Properties properties = new Properties();
     private static String cachedToken = null;
 
@@ -32,15 +38,11 @@ public class ConnectorConfig {
 
             properties.load(input);
             input.close();
-
-            System.out.println("✓ Файл invest.properties загружен успешно");
-
+            log.info("✓ Файл invest.properties загружен успешно");
         } catch (IOException e) {
             throw new RuntimeException("❌ Ошибка при загрузке invest.properties: " + e.getMessage(), e);
         }
-    }
 
-    static {
         // Парсим target: "invest-public-api.tinkoff.ru:443" → URL и PORT
         String target = getProperty("target", "invest-public-api.tinkoff.ru:443");
         String[] parts = target.split(":");
@@ -59,7 +61,7 @@ public class ConnectorConfig {
     private static String getProperty(String key, String defaultValue) {
         String value = properties.getProperty(key);
         if (value == null || value.trim().isEmpty()) {
-            System.out.println("⚠️  Свойство '" + key + "' не найдено, используется значение по умолчанию: " + defaultValue);
+            log.info("⚠️ Свойство '{}' не найдено, используется значение по умолчанию: {}", key, defaultValue);
             return defaultValue;
         }
         return value;
@@ -82,18 +84,19 @@ public class ConnectorConfig {
             // Сначала пытаемся получить из БД
             cachedToken = getTokenFromDatabase();
             if (cachedToken != null && !cachedToken.isEmpty()) {
-                System.out.println("✓ Токен загружен из БД (длина: " + cachedToken.length() + " символов)");
+                log.info("✓ Токен загружен из БД (длина: {} символов)", cachedToken.length());
                 return cachedToken;
             }
+
         } catch (Exception e) {
-            System.out.println("⚠️  БД недоступна, пытаюсь получить токен из invest.properties");
+            log.info("⚠️ БД недоступна, пытаюсь получить токен из invest.properties");
         }
 
         // Если БД не работает, получаем из invest.properties
         String propertyToken = properties.getProperty("token");
         if (propertyToken != null && !propertyToken.trim().isEmpty()) {
             cachedToken = propertyToken;
-            System.out.println("✓ Токен загружен из invest.properties (длина: " + cachedToken.length() + " символов)");
+            log.info("✓ Токен загружен из invest.properties (длина: {} символов)", cachedToken.length());
             return cachedToken;
         }
 
@@ -113,16 +116,12 @@ public class ConnectorConfig {
             throw new RuntimeException("PostgreSQL драйвер не найден", e);
         }
 
-        System.out.println("📡 Подключаюсь к БД: " + DB_URL);
-
+        log.info("📡 Подключаюсь к БД: {}", DB_URL);
         try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD)) {
-            System.out.println("✓ Соединение с БД установлено");
-
+            log.info("✓ Соединение с БД установлено");
             String query = "SELECT value FROM parameters WHERE parameter = 'token1'";
-
             try (Statement stmt = conn.createStatement();
                  ResultSet rs = stmt.executeQuery(query)) {
-
                 if (rs.next()) {
                     String token = rs.getString("value");
                     if (token != null && !token.trim().isEmpty()) {
@@ -131,7 +130,7 @@ public class ConnectorConfig {
                 }
             }
         } catch (SQLException e) {
-            System.out.println("⚠️  Ошибка подключения к БД: " + e.getMessage());
+            log.info("⚠️ Ошибка подключения к БД: {}", e.getMessage());
             throw e;
         }
 
@@ -149,14 +148,14 @@ public class ConnectorConfig {
      * Возвращает информацию о конфигурации
      */
     public static void printConfig() {
-        System.out.println("\n=== КОНФИГУРАЦИЯ ===");
-        System.out.println("API URL: " + API_URL);
-        System.out.println("API PORT: " + API_PORT);
-        System.out.println("DB URL: " + DB_URL);
-        System.out.println("DB User: " + DB_USER);
-        System.out.println("Target: " + properties.getProperty("target"));
-        System.out.println("Sandbox: " + properties.getProperty("sandbox.enabled"));
-        System.out.println("====================\n");
+        log.info("\n=== КОНФИГУРАЦИЯ ===");
+        log.info("API URL: {}", API_URL);
+        log.info("API PORT: {}", API_PORT);
+        log.info("DB URL: {}", DB_URL);
+        log.info("DB User: {}", DB_USER);
+        log.info("Target: {}", properties.getProperty("target"));
+        log.info("Sandbox: {}", properties.getProperty("sandbox.enabled"));
+        log.info("====================\n");
     }
 
     /**

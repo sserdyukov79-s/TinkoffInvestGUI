@@ -2,14 +2,19 @@ package com.algotrading.tinkoffinvestgui;
 
 import com.algotrading.tinkoffinvestgui.api.AccountsService;
 import com.algotrading.tinkoffinvestgui.config.ConnectorConfig;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Простой тестовый класс для проверки подключения к Tinkoff Invest API
  */
 public class TinkoffAccounts {
 
+    // ✅ ДОБАВЛЯЕМ ЛОГГЕР
+    private static final Logger log = LoggerFactory.getLogger(TinkoffAccounts.class);
+
     public static void main(String[] args) {
-        System.out.println("🚀 TINKOFF INVEST API - TEST\n");
+        log.info("🚀 TINKOFF INVEST API - TEST\n");
 
         try {
             // Загружаем конфигурацию
@@ -17,29 +22,28 @@ public class TinkoffAccounts {
 
             // Получаем токен из БД или invest.properties
             String token = ConnectorConfig.getApiToken();
-            System.out.println("✓ Токен успешно загружен\n");
+            log.info("✓ Токен успешно загружен\n");
 
             // Подключаемся к API
             AccountsService service = new AccountsService();
             int count = service.getAccountsCount();
-            System.out.println("✓ Количество счетов: " + count + "\n");
+            log.info("✓ Количество счетов: {}\n", count);
 
             // Получаем и выводим список счетов
             var response = service.getAccounts();
-            System.out.println("📋 Список счетов:\n");
+            log.info("📋 Список счетов:\n");
 
             response.getAccountsList().forEach(account -> {
-                System.out.println("  ├─ ID: " + account.getId());
-                System.out.println("  ├─ Имя: " + account.getName());
-                System.out.println("  ├─ Тип: " + account.getType());
-                System.out.println("  └─ Статус: " + account.getStatus() + "\n");
+                log.info(" ├─ ID: {}", account.getId());
+                log.info(" ├─ Имя: {}", account.getName());
+                log.info(" ├─ Тип: {}", account.getType());
+                log.info(" └─ Статус: {}\n", account.getStatus());
             });
 
-            System.out.println("✅ Подключение работает корректно!");
+            log.info("✅ Подключение работает корректно!");
 
         } catch (Exception e) {
-            System.err.println("❌ Ошибка подключения: " + e.getMessage());
-            e.printStackTrace();
+            log.error("❌ Ошибка подключения: {}", e.getMessage(), e);
         }
     }
 }
