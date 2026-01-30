@@ -4,6 +4,7 @@ import com.algotrading.tinkoffinvestgui.api.AccountsService;
 import com.algotrading.tinkoffinvestgui.api.PortfolioService;
 import com.algotrading.tinkoffinvestgui.api.BondsService;
 import com.algotrading.tinkoffinvestgui.api.OrdersService;
+import com.algotrading.tinkoffinvestgui.api.OrdersSender;
 import com.algotrading.tinkoffinvestgui.config.ConnectorConfig;
 import com.algotrading.tinkoffinvestgui.entity.Instrument;
 import com.algotrading.tinkoffinvestgui.repository.BondsRepository;
@@ -113,19 +114,25 @@ public class TinkoffInvestGui extends JFrame {
         deleteInstrumentButton = new JButton("🗑️ Удалить");
         deleteInstrumentButton.addActionListener(e -> deleteSelectedInstrument());
 
-        JButton placeOrdersButton = new JButton("📤 Выставить заявки");
-        placeOrdersButton.addActionListener(e -> showOrdersJson());
-        placeOrdersButton.setFont(new Font("Arial", Font.BOLD, 12));
-        placeOrdersButton.setBackground(new Color(46, 204, 113));
-        placeOrdersButton.setForeground(Color.WHITE);
-        placeOrdersButton.setFocusPainted(false);
+        JButton viewJsonButton = new JButton("📄 Просмотр JSON");
+        viewJsonButton.addActionListener(e -> showOrdersJson());
+        viewJsonButton.setFont(new Font("Arial", Font.PLAIN, 12));
+
+        JButton sendOrdersButton = new JButton("🚀 Отправить заявки на биржу");
+        sendOrdersButton.addActionListener(e -> sendOrdersToExchange());
+        sendOrdersButton.setFont(new Font("Arial", Font.BOLD, 12));
+        sendOrdersButton.setBackground(new Color(231, 76, 60)); // Красный для предупреждения
+        sendOrdersButton.setForeground(Color.WHITE);
+        sendOrdersButton.setFocusPainted(false);
 
         buttonsPanel.add(refreshInstrumentsButton);
         buttonsPanel.add(addInstrumentButton);
         buttonsPanel.add(editInstrumentButton);
         buttonsPanel.add(deleteInstrumentButton);
         buttonsPanel.add(Box.createHorizontalStrut(20));
-        buttonsPanel.add(placeOrdersButton);
+        buttonsPanel.add(viewJsonButton);
+        buttonsPanel.add(Box.createHorizontalStrut(10));
+        buttonsPanel.add(sendOrdersButton);
 
         // Таблица инструментов
         String[] columns = {"ID", "Дата", "FIGI", "Название", "ISIN", "Приоритет",
@@ -527,6 +534,125 @@ public class TinkoffInvestGui extends JFrame {
                     "Ошибка формирования заявок: " + e.getMessage(),
                     "Ошибка", JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    /**
+     * Отправляет заявки на биржу (вызывается по кнопке)
+     */
+    private void sendOrdersToExchange() {
+        log.info("Запуск отправки заявок на биржу");
+
+        // Проверяем, что выбран счёт
+        if (selectedAccountId == null || selectedAccountId.isEmpty()) {
+            log.error("Account ID не выбран");
+            JOptionPane.showMessageDialog(this,
+                    "Не выбран счёт. Перейдите на вкладку 'Портфель и счета' и загрузите счета.",
+                    "Ошибка", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        // Запрашиваем подтверждение
+        int confirm = JOptionPane.showConfirmDialog(this,
+                "⚠️ ВЫ УВЕРЕНЫ?\n\n" +
+                        "Сейчас будут отправлены РЕАЛЬНЫЕ ЗАЯВКИ на биржу!\n\n" +
+                        "Account ID: " + selectedAccountId + "\n\n" +
+                        "Это действие НЕЛЬЗЯ отменить!\n" +
+                        "Заявки будут выставлены на реальную торговлю!",
+                "⚠️ ПОДТВЕРЖДЕНИЕ ОТПРАВКИ ЗАЯВОК",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE);
+
+        if (confirm != JOptionPane.YES_OPTION) {
+            log.info("Отправка заявок отменена пользователем");
+            return;
+        }
+
+        // Второе подтверждение (для безопасности)
+        int confirm2 = JOptionPane.showConfirmDialog(this,
+                "Последнее подтверждение!\n\n" +
+                        "Отправить заявки на биржу?",
+                "Финальное подтверждение",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE);
+
+        if (confirm2 != JOptionPane.YES_OPTION) {
+            log.info("Отправка заявок отменена пользователем (второе подтверждение)");
+            return;
+        }
+
+        // Отключаем кнопку на время отправки
+        JButton sendButton = findSendOrdersButton();
+        if (sendButton != null) {
+            sendButton.setEnabled(false);
+            sendButton.setText("⏳ Отправка заявок...");
+        }
+
+        SwingWorker<Void, Void> worker = new SwingWorker<>() {
+            @Override
+            protected Void doInBackground() {
+                try {
+                    List<Instrument> instruments = instrumentsRepository.findAll();
+
+                    if (instruments.isEmpty()) {
+                        log.warn("Нет инструментов для отправки заявок");
+                        SwingUtilities.invokeLater(() ->
+                                JOptionPane.showMessageDialog(TinkoffInvestGui.this,
+                                        "Нет инструментов для отправки заявок",
+                                        "Внимание", JOptionPane.WARNING_MESSAGE));
+                        return null;
+                    }
+
+                    log.info("Начинаем отправку заявок для {} инструментов", instruments.size());
+
+                    // Отправляем заявки
+                    OrdersSender.sendOrders(instruments, selectedAccountId);
+
+                    SwingUtilities.invokeLater(() ->
+                            JOptionPane.showMessageDialog(TinkoffInvestGui.this,
+                                    "✅ Заявки отправлены!\n\n" +
+                                            "Проверьте логи для детальной информации.\n" +
+                                            "Все JSON-запросы записаны в лог-файл.",
+                                    "Успех", JOptionPane.INFORMATION_MESSAGE));
+
+                } catch (Exception e) {
+                    log.error("Ошибка отправки заявок на биржу", e);
+                    SwingUtilities.invokeLater(() ->
+                            JOptionPane.showMessageDialog(TinkoffInvestGui.this,
+                                    "❌ Ошибка отправки заявок:\n\n" + e.getMessage(),
+                                    "Ошибка", JOptionPane.ERROR_MESSAGE));
+                }
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                if (sendButton != null) {
+                    sendButton.setEnabled(true);
+                    sendButton.setText("🚀 Отправить заявки на биржу");
+                }
+            }
+        };
+
+        worker.execute();
+    }
+
+    /**
+     * Находит кнопку отправки заявок
+     */
+    private JButton findSendOrdersButton() {
+        // Поиск кнопки в панели инструментов
+        Component[] components = ((JPanel) tabbedPane.getComponentAt(0)).getComponents();
+        for (Component comp : components) {
+            if (comp instanceof JPanel) {
+                for (Component btn : ((JPanel) comp).getComponents()) {
+                    if (btn instanceof JButton &&
+                            ((JButton) btn).getText().contains("Отправить заявки")) {
+                        return (JButton) btn;
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     // ============================================================
