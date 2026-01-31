@@ -1,6 +1,6 @@
 package com.algotrading.tinkoffinvestgui;
 
-import com.algotrading.tinkoffinvestgui.api.AccountsService;
+import com.algotrading.tinkoffinvestgui.api.AccountsApiService;
 import com.algotrading.tinkoffinvestgui.config.ConnectorConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,8 +9,6 @@ import org.slf4j.LoggerFactory;
  * Простой тестовый класс для проверки подключения к Tinkoff Invest API
  */
 public class TinkoffAccounts {
-
-    // ✅ ДОБАВЛЯЕМ ЛОГГЕР
     private static final Logger log = LoggerFactory.getLogger(TinkoffAccounts.class);
 
     public static void main(String[] args) {
@@ -25,7 +23,7 @@ public class TinkoffAccounts {
             log.info("✓ Токен успешно загружен\n");
 
             // Подключаемся к API
-            AccountsService service = new AccountsService();
+            AccountsApiService service = new AccountsApiService();
             int count = service.getAccountsCount();
             log.info("✓ Количество счетов: {}\n", count);
 
@@ -34,10 +32,10 @@ public class TinkoffAccounts {
             log.info("📋 Список счетов:\n");
 
             response.getAccountsList().forEach(account -> {
-                log.info(" ├─ ID: {}", account.getId());
-                log.info(" ├─ Имя: {}", account.getName());
-                log.info(" ├─ Тип: {}", account.getType());
-                log.info(" └─ Статус: {}\n", account.getStatus());
+                log.info("  ├─ ID: {}", account.getId());
+                log.info("  ├─ Имя: {}", account.getName());
+                log.info("  ├─ Тип: {}", account.getType());
+                log.info("  └─ Статус: {}\n", account.getStatus());
             });
 
             log.info("✅ Подключение работает корректно!");

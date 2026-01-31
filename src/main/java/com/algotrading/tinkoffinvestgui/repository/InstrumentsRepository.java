@@ -15,13 +15,15 @@ import java.util.List;
  */
 public class InstrumentsRepository {
 
-    // ✅ ДОБАВЛЯЕМ ЛОГГЕР
     private static final Logger log = LoggerFactory.getLogger(InstrumentsRepository.class);
 
     private Connection getConnection() throws SQLException {
         String dbUrl = ConnectorConfig.getPropertyValue("db.url");
         String dbUser = ConnectorConfig.getPropertyValue("db.username");
         String dbPassword = ConnectorConfig.getPropertyValue("db.password");
+
+        log.debug("🔌 Подключение к БД: {}", dbUrl);
+
         return DriverManager.getConnection(dbUrl, dbUser, dbPassword);
     }
 
@@ -29,6 +31,8 @@ public class InstrumentsRepository {
      * Получает все инструменты, отсортированные по приоритету и названию
      */
     public List<Instrument> findAll() {
+        log.info("📊 Запрос всех инструментов из БД...");
+
         List<Instrument> instruments = new ArrayList<>();
         String sql = "SELECT * FROM public.instruments ORDER BY bookdate DESC, priority, name";
 
@@ -36,11 +40,20 @@ public class InstrumentsRepository {
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
 
+            log.debug("✅ SQL выполнен успешно");
+
             while (rs.next()) {
-                instruments.add(mapResultSetToInstrument(rs));
+                Instrument instrument = mapResultSetToInstrument(rs);
+                instruments.add(instrument);
+                log.debug("  ➜ Загружен: {} (ISIN: {})", instrument.getName(), instrument.getIsin());
             }
 
+            log.info("✅ Загружено инструментов: {}", instruments.size());
+
         } catch (SQLException e) {
+            log.error("❌ Ошибка получения инструментов из БД", e);
+            log.error("   SQL: {}", sql);
+            log.error("   Сообщение: {}", e.getMessage());
             throw new RuntimeException("Ошибка получения инструментов: " + e.getMessage(), e);
         }
 
@@ -51,6 +64,8 @@ public class InstrumentsRepository {
      * Получает инструменты по конкретной дате
      */
     public List<Instrument> findByBookdate(LocalDate bookdate) {
+        log.info("📊 Запрос инструментов по дате: {}", bookdate);
+
         List<Instrument> instruments = new ArrayList<>();
         String sql = "SELECT * FROM public.instruments WHERE bookdate = ? ORDER BY priority, name";
 
@@ -64,7 +79,10 @@ public class InstrumentsRepository {
                 instruments.add(mapResultSetToInstrument(rs));
             }
 
+            log.info("✅ Загружено инструментов: {}", instruments.size());
+
         } catch (SQLException e) {
+            log.error("❌ Ошибка получения инструментов по дате", e);
             throw new RuntimeException("Ошибка получения инструментов по дате: " + e.getMessage(), e);
         }
 
@@ -75,6 +93,8 @@ public class InstrumentsRepository {
      * Добавляет новый инструмент
      */
     public void save(Instrument instrument) {
+        log.info("💾 Сохранение инструмента: {}", instrument.getName());
+
         String sql = """
             INSERT INTO public.instruments
             (bookdate, figi, name, isin, priority, buy_price, buy_quantity, sell_price, sell_quantity)
@@ -106,9 +126,10 @@ public class InstrumentsRepository {
             }
 
             pstmt.executeUpdate();
-            log.info("✓ Инструмент добавлен: {}", instrument.getName());
+            log.info("✅ Инструмент добавлен: {}", instrument.getName());
 
         } catch (SQLException e) {
+            log.error("❌ Ошибка сохранения инструмента", e);
             throw new RuntimeException("Ошибка сохранения инструмента: " + e.getMessage(), e);
         }
     }
@@ -117,6 +138,8 @@ public class InstrumentsRepository {
      * Обновляет существующий инструмент
      */
     public void update(Instrument instrument) {
+        log.info("📝 Обновление инструмента: {}", instrument.getName());
+
         String sql = """
             UPDATE public.instruments
             SET bookdate = ?, figi = ?, name = ?, isin = ?, priority = ?,
@@ -150,9 +173,11 @@ public class InstrumentsRepository {
 
             pstmt.setInt(10, instrument.getId());
             pstmt.executeUpdate();
-            log.info("✓ Инструмент обновлён: {}", instrument.getName());
+
+            log.info("✅ Инструмент обновлён: {}", instrument.getName());
 
         } catch (SQLException e) {
+            log.error("❌ Ошибка обновления инструмента", e);
             throw new RuntimeException("Ошибка обновления инструмента: " + e.getMessage(), e);
         }
     }
@@ -161,6 +186,8 @@ public class InstrumentsRepository {
      * Удаляет инструмент по ID
      */
     public void delete(int id) {
+        log.info("🗑️ Удаление инструмента ID: {}", id);
+
         String sql = "DELETE FROM public.instruments WHERE id = ?";
 
         try (Connection conn = getConnection();
@@ -168,9 +195,11 @@ public class InstrumentsRepository {
 
             pstmt.setInt(1, id);
             pstmt.executeUpdate();
-            log.info("✓ Инструмент удалён (ID: {})", id);
+
+            log.info("✅ Инструмент удалён (ID: {})", id);
 
         } catch (SQLException e) {
+            log.error("❌ Ошибка удаления инструмента", e);
             throw new RuntimeException("Ошибка удаления инструмента: " + e.getMessage(), e);
         }
     }
@@ -180,6 +209,7 @@ public class InstrumentsRepository {
      */
     private Instrument mapResultSetToInstrument(ResultSet rs) throws SQLException {
         Instrument instrument = new Instrument();
+
         instrument.setId(rs.getInt("id"));
 
         Date bookdateDate = rs.getDate("bookdate");
@@ -203,6 +233,8 @@ public class InstrumentsRepository {
      * Подсчитывает количество инструментов
      */
     public int count() {
+        log.debug("🔢 Подсчёт количества инструментов...");
+
         String sql = "SELECT COUNT(*) FROM public.instruments";
 
         try (Connection conn = getConnection();
@@ -210,10 +242,13 @@ public class InstrumentsRepository {
              ResultSet rs = stmt.executeQuery(sql)) {
 
             if (rs.next()) {
-                return rs.getInt(1);
+                int count = rs.getInt(1);
+                log.debug("✅ Всего инструментов: {}", count);
+                return count;
             }
 
         } catch (SQLException e) {
+            log.error("❌ Ошибка подсчета инструментов", e);
             throw new RuntimeException("Ошибка подсчета инструментов: " + e.getMessage(), e);
         }
 
@@ -224,6 +259,8 @@ public class InstrumentsRepository {
      * Получает последнюю использованную дату
      */
     public LocalDate getLatestBookdate() {
+        log.debug("📅 Получение последней даты...");
+
         String sql = "SELECT MAX(bookdate) FROM public.instruments";
 
         try (Connection conn = getConnection();
@@ -232,10 +269,13 @@ public class InstrumentsRepository {
 
             if (rs.next()) {
                 Date date = rs.getDate(1);
-                return date != null ? date.toLocalDate() : LocalDate.now();
+                LocalDate result = date != null ? date.toLocalDate() : LocalDate.now();
+                log.debug("✅ Последняя дата: {}", result);
+                return result;
             }
 
         } catch (SQLException e) {
+            log.error("❌ Ошибка получения последней даты", e);
             throw new RuntimeException("Ошибка получения последней даты: " + e.getMessage(), e);
         }
 

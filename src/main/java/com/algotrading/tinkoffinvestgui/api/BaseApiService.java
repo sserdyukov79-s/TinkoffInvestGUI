@@ -1,20 +1,21 @@
 package com.algotrading.tinkoffinvestgui.api;
 
+import io.grpc.CallCredentials;
 import io.grpc.ManagedChannel;
+import io.grpc.Metadata;
 import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
-import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.concurrent.TimeUnit;
+
 /**
  * Базовый класс для API сервисов Tinkoff Invest.
- * Управляет подключением к gRPC серверу.
+ * Управляет подключением к gRPC серверу и авторизацией.
  */
 public abstract class BaseApiService {
-
-    // ✅ ДОБАВЛЯЕМ ЛОГГЕР
     protected static final Logger log = LoggerFactory.getLogger(BaseApiService.class);
-
+    
     protected String token;
     protected String apiUrl;
     protected int apiPort;
@@ -24,9 +25,8 @@ public abstract class BaseApiService {
         this.token = token;
         this.apiUrl = apiUrl;
         this.apiPort = apiPort;
-        log.info("🔌 Инициализирую подключение к API:");
-        log.info("   URL: " + apiUrl + ":" + apiPort);
-        log.info("   Token: " + (token != null ? token.substring(0, Math.min(10, token.length())) + "..." : "NONE"));
+        
+        log.debug("Инициализация BaseApiService: {}:{}", apiUrl, apiPort);
     }
 
     /**
@@ -34,7 +34,8 @@ public abstract class BaseApiService {
      */
     protected ManagedChannel getChannel() {
         if (channel == null || channel.isShutdown()) {
-            log.info("📡 Создаю новое gRPC соединение...");
+            log.debug("Создание нового gRPC соединения...");
+            
             channel = NettyChannelBuilder
                     .forAddress(apiUrl, apiPort)
                     .useTransportSecurity()
@@ -45,80 +46,97 @@ public abstract class BaseApiService {
                     .retryBufferSize(16 * 1024 * 1024)
                     .perRpcBufferLimit(1024 * 1024)
                     .build();
-            log.info("✓ gRPC соединение установлено");
+            
+            log.debug("gRPC соединение установлено");
         }
+        
         return channel;
     }
 
     /**
-     * Получает метаданные авторизации с токеном
+     * Получает CallCredentials с Bearer токеном для авторизации
      */
-    protected io.grpc.Metadata getAuthorizationHeaders() {
-        io.grpc.Metadata headers = new io.grpc.Metadata();
-        // Ключ для авторизации в Tinkoff API
-        io.grpc.Metadata.Key<String> authKey =
-                io.grpc.Metadata.Key.of("authorization", io.grpc.Metadata.ASCII_STRING_MARSHALLER);
+    protected CallCredentials getCallCredentials() {
+        return new BearerTokenCallCredentials(token);
+    }
+
+    /**
+     * Получает метаданные авторизации с токеном (для старых сервисов)
+     */
+    protected Metadata getAuthorizationHeaders() {
+        Metadata headers = new Metadata();
+        Metadata.Key<String> authKey = 
+                Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER);
         headers.put(authKey, "Bearer " + token);
         return headers;
     }
 
     /**
-     * Валидирует токен перед использованием
+     * Валидирует токен перед использованием (для старых сервисов)
      */
     protected void validateToken() {
         if (token == null || token.trim().isEmpty()) {
-            throw new RuntimeException("❌ Токен пуст! Проверь invest.properties или БД");
+            throw new RuntimeException("❌ Токен пуст! Проверьте invest.properties или БД");
         }
-
+        
         if (!token.startsWith("t.")) {
-            log.info("⚠️ Внимание: токен не начинается с 't.', может быть невалидным");
+            log.warn("⚠️ Внимание: токен не начинается с 't.', может быть невалидным");
         }
-
-        log.info("✓ Токен валиден (длина: " + token.length() + ")");
+        
+        log.debug("✓ Токен валиден (длина: {})", token.length());
     }
 
     /**
-     * Обработчик ошибок API
+     * Обработчик ошибок API (для старых сервисов)
      */
     protected RuntimeException handleApiError(String context, Exception e) {
         String errorMsg = "Ошибка при " + context + ": " + e.getMessage();
-        System.err.println("❌ " + errorMsg);
+        log.error("❌ {}", errorMsg);
+        
         if (e instanceof io.grpc.StatusRuntimeException) {
             io.grpc.StatusRuntimeException sre = (io.grpc.StatusRuntimeException) e;
-            System.err.println("   Код ошибки: " + sre.getStatus().getCode());
-            System.err.println("   Описание: " + sre.getStatus().getDescription());
-            // Подсказки для типичных ошибок
+            log.error(" Код ошибки: {}", sre.getStatus().getCode());
+            log.error(" Описание: {}", sre.getStatus().getDescription());
+            
             switch (sre.getStatus().getCode()) {
                 case UNAVAILABLE:
-                    System.err.println("   💡 Подсказка: Проверь:");
-                    System.err.println("      - Доступность API: invest-public-api.tinkoff.ru:443");
-                    System.err.println("      - Firewall/Прокси может блокировать подключение");
-                    System.err.println("      - Проверь интернет соединение");
+                    log.error(" 💡 Подсказка: Проверьте доступность API и интернет-соединение");
                     break;
                 case UNAUTHENTICATED:
-                    System.err.println("   💡 Подсказка: Токен невалидный или истек");
+                    log.error(" 💡 Подсказка: Токен невалидный или истек");
                     break;
                 case PERMISSION_DENIED:
-                    System.err.println("   💡 Подсказка: Токен не имеет прав на эту операцию");
+                    log.error(" 💡 Подсказка: Токен не имеет прав на эту операцию");
                     break;
                 default:
                     break;
             }
         }
+        
         return new RuntimeException(errorMsg, e);
     }
 
     /**
      * Закрывает gRPC канал
      */
-    public void close() {
+    public void shutdown() {
         if (channel != null && !channel.isShutdown()) {
             try {
+                log.debug("Закрытие gRPC соединения...");
                 channel.shutdown().awaitTermination(5, TimeUnit.SECONDS);
+                log.debug("gRPC соединение закрыто");
             } catch (InterruptedException e) {
+                log.warn("Прерывание при закрытии канала");
                 channel.shutdownNow();
                 Thread.currentThread().interrupt();
             }
         }
+    }
+
+    /**
+     * Альтернативное имя для shutdown() (для совместимости)
+     */
+    public void close() {
+        shutdown();
     }
 }

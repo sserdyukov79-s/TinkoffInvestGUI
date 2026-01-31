@@ -1,14 +1,16 @@
 package com.algotrading.tinkoffinvestgui;
 
-import com.algotrading.tinkoffinvestgui.api.AccountsService;
 import com.algotrading.tinkoffinvestgui.api.PortfolioService;
 import com.algotrading.tinkoffinvestgui.api.BondsService;
 import com.algotrading.tinkoffinvestgui.api.OrdersService;
-import com.algotrading.tinkoffinvestgui.api.OrdersSender;
+import com.algotrading.tinkoffinvestgui.api.AccountsApiService;
+import com.algotrading.tinkoffinvestgui.config.AppConstants;
 import com.algotrading.tinkoffinvestgui.config.ConnectorConfig;
 import com.algotrading.tinkoffinvestgui.entity.Instrument;
 import com.algotrading.tinkoffinvestgui.repository.BondsRepository;
 import com.algotrading.tinkoffinvestgui.repository.InstrumentsRepository;
+import com.algotrading.tinkoffinvestgui.service.AccountService;
+import com.algotrading.tinkoffinvestgui.service.OrdersBusinessService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import ru.tinkoff.piapi.contract.v1.*;
@@ -23,7 +25,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
 public class TinkoffInvestGui extends JFrame {
-
     private static final Logger log = LoggerFactory.getLogger(TinkoffInvestGui.class);
 
     // Общие компоненты
@@ -46,7 +47,6 @@ public class TinkoffInvestGui extends JFrame {
     private JButton refreshButton;
     private JButton portfolioButton;
     private JButton bondsButton;
-    private String selectedAccountId = "";
 
     public TinkoffInvestGui() {
         log.info("=== Запуск приложения Tinkoff Invest GUI ===");
@@ -54,7 +54,7 @@ public class TinkoffInvestGui extends JFrame {
         setTitle("Tinkoff Invest - Управление портфелем");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLayout(new BorderLayout());
-        setSize(1400, 850);
+        setSize(AppConstants.WINDOW_WIDTH, AppConstants.WINDOW_HEIGHT);
         setLocationRelativeTo(null);
 
         instrumentsRepository = new InstrumentsRepository();
@@ -140,14 +140,12 @@ public class TinkoffInvestGui extends JFrame {
         instrumentsTable = new JTable(new DefaultTableModel(new Object[][]{{"Загрузка..."}}, columns));
         instrumentsTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         instrumentsTable.getTableHeader().setReorderingAllowed(false);
-
         JScrollPane scrollPane = new JScrollPane(instrumentsTable);
 
         // Компоновка
         JPanel centerPanel = new JPanel(new BorderLayout(0, 10));
         centerPanel.add(buttonsPanel, BorderLayout.NORTH);
         centerPanel.add(scrollPane, BorderLayout.CENTER);
-
         panel.add(centerPanel, BorderLayout.CENTER);
 
         return panel;
@@ -181,7 +179,6 @@ public class TinkoffInvestGui extends JFrame {
                 refreshInstrumentsButton.setText("🔄 Обновить");
             }
         };
-
         worker.execute();
     }
 
@@ -212,13 +209,11 @@ public class TinkoffInvestGui extends JFrame {
         instrumentsTable.setModel(new DefaultTableModel(data,
                 new String[]{"ID", "Дата", "FIGI", "Название", "ISIN", "Приоритет",
                         "Цена покупки", "Кол-во покупки", "Цена продажи", "Кол-во продажи"}));
-
         log.debug("Таблица инструментов обновлена, строк: {}", instruments.size());
     }
 
     private void showAddInstrumentDialog() {
         log.debug("Открытие диалога добавления инструмента");
-
         JDialog dialog = new JDialog(this, "Добавить инструмент", true);
         dialog.setLayout(new GridLayout(11, 2, 10, 10));
         dialog.setSize(500, 450);
@@ -282,10 +277,8 @@ public class TinkoffInvestGui extends JFrame {
                 instrumentsRepository.save(instrument);
                 loadInstruments();
                 dialog.dispose();
-
                 JOptionPane.showMessageDialog(this, "✓ Инструмент добавлен!",
                         "Успех", JOptionPane.INFORMATION_MESSAGE);
-
             } catch (Exception ex) {
                 log.error("Ошибка добавления инструмента", ex);
                 JOptionPane.showMessageDialog(dialog, "Ошибка: " + ex.getMessage(),
@@ -300,7 +293,6 @@ public class TinkoffInvestGui extends JFrame {
 
         dialog.add(saveButton);
         dialog.add(cancelButton);
-
         dialog.setVisible(true);
     }
 
@@ -390,10 +382,8 @@ public class TinkoffInvestGui extends JFrame {
                 instrumentsRepository.update(instrument);
                 loadInstruments();
                 dialog.dispose();
-
                 JOptionPane.showMessageDialog(this, "✓ Инструмент обновлён!",
                         "Успех", JOptionPane.INFORMATION_MESSAGE);
-
             } catch (Exception ex) {
                 log.error("Ошибка обновления инструмента ID: {}", id, ex);
                 JOptionPane.showMessageDialog(dialog, "Ошибка: " + ex.getMessage(),
@@ -408,7 +398,6 @@ public class TinkoffInvestGui extends JFrame {
 
         dialog.add(saveButton);
         dialog.add(cancelButton);
-
         dialog.setVisible(true);
     }
 
@@ -423,7 +412,6 @@ public class TinkoffInvestGui extends JFrame {
 
         int id = (int) instrumentsTable.getValueAt(selectedRow, 0);
         String name = (String) instrumentsTable.getValueAt(selectedRow, 3);
-
         log.debug("Запрос подтверждения удаления инструмента ID: {}, Name: {}", id, name);
 
         int confirm = JOptionPane.showConfirmDialog(this,
@@ -450,7 +438,6 @@ public class TinkoffInvestGui extends JFrame {
 
     private void showOrdersJson() {
         log.info("Формирование JSON заявок");
-
         try {
             List<Instrument> instruments = instrumentsRepository.findAll();
 
@@ -462,19 +449,22 @@ public class TinkoffInvestGui extends JFrame {
                 return;
             }
 
-            if (selectedAccountId == null || selectedAccountId.isEmpty()) {
-                log.error("Account ID не выбран");
+            // Получаем account ID из БД
+            String accountId;
+            try {
+                accountId = AccountService.getActiveAccountId();
+            } catch (Exception e) {
+                log.error("❌ Не удалось получить account ID из БД", e);
                 JOptionPane.showMessageDialog(this,
-                        "Не выбран счёт. Перейдите на вкладку 'Портфель и счета' и загрузите счета.",
+                        "Account ID не настроен в БД!\n\n" + e.getMessage(),
                         "Ошибка", JOptionPane.ERROR_MESSAGE);
                 return;
             }
 
             log.debug("Формирование заявок для {} инструментов, accountId: {}",
-                    instruments.size(), selectedAccountId);
+                    instruments.size(), accountId);
 
-            String ordersJson = OrdersService.createOrdersJson(instruments, selectedAccountId);
-
+            String ordersJson = OrdersService.createOrdersJson(instruments, accountId);
             log.info("JSON заявок сформирован успешно");
 
             JDialog dialog = new JDialog(this, "JSON заявок для отправки", false);
@@ -482,7 +472,9 @@ public class TinkoffInvestGui extends JFrame {
             dialog.setLocationRelativeTo(this);
             dialog.setLayout(new BorderLayout(10, 10));
 
-            JLabel titleLabel = new JLabel("📤 Сформированные заявки (JSON)", SwingConstants.CENTER);
+            JLabel titleLabel = new JLabel(
+                    String.format("📤 Сформированные заявки для Account: %s", accountId),
+                    SwingConstants.CENTER);
             titleLabel.setFont(new Font("Arial", Font.BOLD, 16));
             titleLabel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
             dialog.add(titleLabel, BorderLayout.NORTH);
@@ -518,14 +510,13 @@ public class TinkoffInvestGui extends JFrame {
 
             JPanel infoPanel = new JPanel(new BorderLayout());
             JLabel infoLabel = new JLabel(
-                    "<html><b>AccountID:</b> " + selectedAccountId +
-                            " | <b>Инструментов:</b> " + instruments.size() + "</html>");
+                    "AccountID: " + accountId +
+                            " | Инструментов: " + instruments.size() + "");
             infoLabel.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
             infoPanel.add(infoLabel, BorderLayout.WEST);
             infoPanel.add(buttonPanel, BorderLayout.CENTER);
 
             dialog.add(infoPanel, BorderLayout.SOUTH);
-
             dialog.setVisible(true);
 
         } catch (Exception e) {
@@ -537,122 +528,89 @@ public class TinkoffInvestGui extends JFrame {
     }
 
     /**
-     * Отправляет заявки на биржу (вызывается по кнопке)
+     * Отправляет заявки на биржу (использует account ID из БД)
      */
     private void sendOrdersToExchange() {
-        log.info("Запуск отправки заявок на биржу");
+        log.info("🚀 Запуск отправки заявок на биржу");
 
-        // Проверяем, что выбран счёт
-        if (selectedAccountId == null || selectedAccountId.isEmpty()) {
-            log.error("Account ID не выбран");
+        try {
+            // Получаем инструменты из БД
+            List<Instrument> instruments = instrumentsRepository.findAll();
+
+            if (instruments.isEmpty()) {
+                log.warn("Нет инструментов для отправки");
+                JOptionPane.showMessageDialog(this,
+                        "Нет инструментов для формирования заявок",
+                        "Внимание", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            // Проверяем, что account ID настроен в БД
+            if (!AccountService.isAccountConfigured()) {
+                log.error("❌ Account ID не настроен в БД");
+                JOptionPane.showMessageDialog(this,
+                        "Account ID не настроен в БД!\n\n" +
+                                "Добавьте запись в таблицу parameters:\n" +
+                                "INSERT INTO parameters (\"parameter\", value) VALUES ('account1', 'ваш_account_id');",
+                        "Ошибка конфигурации", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            // Подтверждение от пользователя
+            String accountId = AccountService.getActiveAccountId();
+            int confirm = JOptionPane.showConfirmDialog(this,
+                    String.format(
+                            "Отправить заявки на биржу?\n\n" +
+                                    "Account ID: %s\n" +
+                                    "Количество инструментов: %d\n\n" +
+                                    "⚠️ Это отправит РЕАЛЬНЫЕ заявки на биржу!",
+                            accountId, instruments.size()
+                    ),
+                    "Подтверждение отправки",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.WARNING_MESSAGE
+            );
+
+            if (confirm != JOptionPane.YES_OPTION) {
+                log.info("Отправка заявок отменена пользователем");
+                return;
+            }
+
+            // Отправляем заявки
+            log.info("Начало отправки {} заявок", instruments.size());
+
+            OrdersBusinessService service = new OrdersBusinessService();
+            OrdersBusinessService.OrdersResult result = service.sendOrdersBatch(instruments);
+
+            // Показываем результат
+            if (result.hasErrors()) {
+                JOptionPane.showMessageDialog(this,
+                        String.format(
+                                "Отправка завершена с ошибками:\n\n%s\n\n" +
+                                        "Детали в логах.",
+                                result.getSummary()
+                        ),
+                        "Результат отправки",
+                        JOptionPane.WARNING_MESSAGE
+                );
+            } else {
+                JOptionPane.showMessageDialog(this,
+                        String.format(
+                                "✅ Заявки успешно отправлены!\n\n%s\n\n" +
+                                        "Проверьте логи для детальной информации.",
+                                result.getSummary()
+                        ),
+                        "Успех",
+                        JOptionPane.INFORMATION_MESSAGE
+                );
+            }
+
+        } catch (Exception e) {
+            log.error("❌ Критическая ошибка при отправке заявок", e);
             JOptionPane.showMessageDialog(this,
-                    "Не выбран счёт. Перейдите на вкладку 'Портфель и счета' и загрузите счета.",
+                    "Ошибка отправки заявок:\n" + e.getMessage(),
                     "Ошибка", JOptionPane.ERROR_MESSAGE);
-            return;
         }
-
-        // Запрашиваем подтверждение
-        int confirm = JOptionPane.showConfirmDialog(this,
-                "⚠️ ВЫ УВЕРЕНЫ?\n\n" +
-                        "Сейчас будут отправлены РЕАЛЬНЫЕ ЗАЯВКИ на биржу!\n\n" +
-                        "Account ID: " + selectedAccountId + "\n\n" +
-                        "Это действие НЕЛЬЗЯ отменить!\n" +
-                        "Заявки будут выставлены на реальную торговлю!",
-                "⚠️ ПОДТВЕРЖДЕНИЕ ОТПРАВКИ ЗАЯВОК",
-                JOptionPane.YES_NO_OPTION,
-                JOptionPane.WARNING_MESSAGE);
-
-        if (confirm != JOptionPane.YES_OPTION) {
-            log.info("Отправка заявок отменена пользователем");
-            return;
-        }
-
-        // Второе подтверждение (для безопасности)
-        int confirm2 = JOptionPane.showConfirmDialog(this,
-                "Последнее подтверждение!\n\n" +
-                        "Отправить заявки на биржу?",
-                "Финальное подтверждение",
-                JOptionPane.YES_NO_OPTION,
-                JOptionPane.WARNING_MESSAGE);
-
-        if (confirm2 != JOptionPane.YES_OPTION) {
-            log.info("Отправка заявок отменена пользователем (второе подтверждение)");
-            return;
-        }
-
-        // Отключаем кнопку на время отправки
-        JButton sendButton = findSendOrdersButton();
-        if (sendButton != null) {
-            sendButton.setEnabled(false);
-            sendButton.setText("⏳ Отправка заявок...");
-        }
-
-        SwingWorker<Void, Void> worker = new SwingWorker<>() {
-            @Override
-            protected Void doInBackground() {
-                try {
-                    List<Instrument> instruments = instrumentsRepository.findAll();
-
-                    if (instruments.isEmpty()) {
-                        log.warn("Нет инструментов для отправки заявок");
-                        SwingUtilities.invokeLater(() ->
-                                JOptionPane.showMessageDialog(TinkoffInvestGui.this,
-                                        "Нет инструментов для отправки заявок",
-                                        "Внимание", JOptionPane.WARNING_MESSAGE));
-                        return null;
-                    }
-
-                    log.info("Начинаем отправку заявок для {} инструментов", instruments.size());
-
-                    // Отправляем заявки
-                    OrdersSender.sendOrders(instruments, selectedAccountId);
-
-                    SwingUtilities.invokeLater(() ->
-                            JOptionPane.showMessageDialog(TinkoffInvestGui.this,
-                                    "✅ Заявки отправлены!\n\n" +
-                                            "Проверьте логи для детальной информации.\n" +
-                                            "Все JSON-запросы записаны в лог-файл.",
-                                    "Успех", JOptionPane.INFORMATION_MESSAGE));
-
-                } catch (Exception e) {
-                    log.error("Ошибка отправки заявок на биржу", e);
-                    SwingUtilities.invokeLater(() ->
-                            JOptionPane.showMessageDialog(TinkoffInvestGui.this,
-                                    "❌ Ошибка отправки заявок:\n\n" + e.getMessage(),
-                                    "Ошибка", JOptionPane.ERROR_MESSAGE));
-                }
-                return null;
-            }
-
-            @Override
-            protected void done() {
-                if (sendButton != null) {
-                    sendButton.setEnabled(true);
-                    sendButton.setText("🚀 Отправить заявки на биржу");
-                }
-            }
-        };
-
-        worker.execute();
-    }
-
-    /**
-     * Находит кнопку отправки заявок
-     */
-    private JButton findSendOrdersButton() {
-        // Поиск кнопки в панели инструментов
-        Component[] components = ((JPanel) tabbedPane.getComponentAt(0)).getComponents();
-        for (Component comp : components) {
-            if (comp instanceof JPanel) {
-                for (Component btn : ((JPanel) comp).getComponents()) {
-                    if (btn instanceof JButton &&
-                            ((JButton) btn).getText().contains("Отправить заявки")) {
-                        return (JButton) btn;
-                    }
-                }
-            }
-        }
-        return null;
     }
 
     // ============================================================
@@ -665,6 +623,14 @@ public class TinkoffInvestGui extends JFrame {
 
         JLabel title = new JLabel("💼 Портфель и счета Tinkoff Invest", SwingConstants.CENTER);
         title.setFont(new Font("Arial", Font.BOLD, 18));
+
+        // Информационное сообщение
+        JLabel accountsInfoLabel = new JLabel(
+                "<html><b>ℹ️ Информация:</b> Счета на этой вкладке только для просмотра.<br>" +
+                        "Для отправки заявок используется Account ID из БД (parameters.account1)</html>"
+        );
+        accountsInfoLabel.setFont(new Font("Arial", Font.PLAIN, 12));
+        accountsInfoLabel.setBorder(BorderFactory.createEmptyBorder(5, 5, 10, 5));
 
         accountsLabel = new JLabel("Счета: --");
         accountsLabel.setFont(new Font("Arial", Font.BOLD, 14));
@@ -693,6 +659,8 @@ public class TinkoffInvestGui extends JFrame {
         topPanel.setLayout(new BoxLayout(topPanel, BoxLayout.Y_AXIS));
         topPanel.add(title);
         topPanel.add(Box.createVerticalStrut(10));
+        topPanel.add(accountsInfoLabel);
+        topPanel.add(Box.createVerticalStrut(5));
         topPanel.add(accountsLabel);
         topPanel.add(Box.createVerticalStrut(10));
         topPanel.add(buttonsPanel);
@@ -737,22 +705,17 @@ public class TinkoffInvestGui extends JFrame {
             @Override
             protected Void doInBackground() {
                 try {
-                    AccountsService service = new AccountsService();
+                    AccountsApiService service = new AccountsApiService();
                     int count = service.getAccountsCount();
                     GetAccountsResponse accounts = service.getAccounts();
-
                     log.info("Получено счетов из API: {}", count);
 
                     SwingUtilities.invokeLater(() -> {
                         accountsLabel.setText("Счета: " + count);
                         updateAccountsTable(accountsTable, accounts.getAccountsList());
-
-                        if (!accounts.getAccountsList().isEmpty()) {
-                            selectedAccountId = accounts.getAccountsList().get(0).getId();
-                            log.info("Выбран счет по умолчанию: {}", selectedAccountId);
-                        }
                     });
 
+                    // Загружаем портфель для первого счёта (для отображения)
                     if (!accounts.getAccountsList().isEmpty()) {
                         String accountId = accounts.getAccountsList().get(0).getId();
                         PortfolioService portfolioService = new PortfolioService(
@@ -761,9 +724,7 @@ public class TinkoffInvestGui extends JFrame {
                                 ConnectorConfig.API_PORT
                         );
                         PortfolioResponse portfolio = portfolioService.getPortfolio(accountId);
-
                         log.info("Получено позиций в портфеле: {}", portfolio.getPositionsCount());
-
                         SwingUtilities.invokeLater(() -> updatePortfolioTable(portfolio));
                     }
 
@@ -783,7 +744,6 @@ public class TinkoffInvestGui extends JFrame {
                 refreshButton.setText("🔄 Обновить счета");
             }
         };
-
         worker.execute();
     }
 
@@ -792,14 +752,14 @@ public class TinkoffInvestGui extends JFrame {
     }
 
     private void showPortfolio() {
-        if (selectedAccountId == null || selectedAccountId.isEmpty()) {
-            log.warn("Попытка загрузки портфеля без выбранного счета");
-            JOptionPane.showMessageDialog(this,
-                    "Сначала загрузи счета", "Внимание", JOptionPane.WARNING_MESSAGE);
+        // Используем первый счёт из таблицы для отображения портфеля
+        if (accountsTable.getRowCount() == 0 || accountsTable.getValueAt(0, 0) == null) {
+            log.warn("Попытка загрузки портфеля без доступных счетов");
             return;
         }
 
-        log.info("Загрузка портфеля для счета: {}", selectedAccountId);
+        String displayAccountId = (String) accountsTable.getValueAt(0, 0);
+        log.info("Загрузка портфеля для отображения, счета: {}", displayAccountId);
 
         portfolioButton.setEnabled(false);
         portfolioButton.setText("⏳ Загрузка портфеля...");
@@ -813,13 +773,11 @@ public class TinkoffInvestGui extends JFrame {
                             ConnectorConfig.API_URL,
                             ConnectorConfig.API_PORT
                     );
-
-                    PortfolioResponse portfolio = service.getPortfolio(selectedAccountId);
+                    PortfolioResponse portfolio = service.getPortfolio(displayAccountId);
                     log.info("Портфель загружен, позиций: {}", portfolio.getPositionsCount());
                     SwingUtilities.invokeLater(() -> updatePortfolioTable(portfolio));
-
                 } catch (Exception e) {
-                    log.error("Ошибка загрузки портфеля для счета: {}", selectedAccountId, e);
+                    log.error("Ошибка загрузки портфеля для счета: {}", displayAccountId, e);
                     SwingUtilities.invokeLater(() ->
                             JOptionPane.showMessageDialog(TinkoffInvestGui.this,
                                     "Ошибка загрузки портфеля: " + e.getMessage(),
@@ -834,7 +792,6 @@ public class TinkoffInvestGui extends JFrame {
                 portfolioButton.setText("💼 Обновить портфель");
             }
         };
-
         worker.execute();
     }
 
@@ -870,7 +827,6 @@ public class TinkoffInvestGui extends JFrame {
         Object[][] data = new Object[portfolio.getPositionsCount()][7];
         for (int i = 0; i < portfolio.getPositionsCount(); i++) {
             PortfolioPosition position = portfolio.getPositions(i);
-
             String figi = PortfolioService.getFigi(position);
             String ticker = PortfolioService.getTicker(position);
             String instrumentType = PortfolioService.getInstrumentType(position);
@@ -895,24 +851,30 @@ public class TinkoffInvestGui extends JFrame {
 
         portfolioTable.setModel(new DefaultTableModel(data,
                 new String[]{"FIGI", "Тикер", "Тип", "Площадка", "Кол-во", "Средняя цена", "Стоимость"}));
-
         log.debug("Таблица портфеля обновлена, позиций: {}", portfolio.getPositionsCount());
     }
 
     private String formatAccountType(AccountType type) {
         switch (type) {
-            case ACCOUNT_TYPE_TINKOFF: return "Брокерский";
-            case ACCOUNT_TYPE_TINKOFF_IIS: return "ИИС";
-            case ACCOUNT_TYPE_INVEST_BOX: return "Инвесткопилка";
-            default: return type.name();
+            case ACCOUNT_TYPE_TINKOFF:
+                return "Брокерский";
+            case ACCOUNT_TYPE_TINKOFF_IIS:
+                return "ИИС";
+            case ACCOUNT_TYPE_INVEST_BOX:
+                return "Инвесткопилка";
+            default:
+                return type.name();
         }
     }
 
     private String formatAccountStatus(AccountStatus status) {
         switch (status) {
-            case ACCOUNT_STATUS_OPEN: return "Открыт ✓";
-            case ACCOUNT_STATUS_CLOSED: return "Закрыт ✗";
-            default: return status.name();
+            case ACCOUNT_STATUS_OPEN:
+                return "Открыт ✓";
+            case ACCOUNT_STATUS_CLOSED:
+                return "Закрыт ✗";
+            default:
+                return status.name();
         }
     }
 
@@ -933,11 +895,10 @@ public class TinkoffInvestGui extends JFrame {
         bondsButton = new JButton("💾 Экспортировать облигации в БД");
         bondsButton.setFont(new Font("Arial", Font.BOLD, 16));
         bondsButton.addActionListener(e -> exportBondsToDatabase());
-
         centerPanel.add(bondsButton);
 
-        JLabel infoLabel = new JLabel("<html><center>Нажмите кнопку для экспорта всех облигаций<br>" +
-                "из T-Bank API в таблицу public.exportdata</center></html>", SwingConstants.CENTER);
+        JLabel infoLabel = new JLabel("Нажмите кнопку для экспорта всех облигаций" +
+                "из T-Bank API в таблицу public.exportdata", SwingConstants.CENTER);
         infoLabel.setFont(new Font("Arial", Font.PLAIN, 14));
 
         JPanel infoPanel = new JPanel(new BorderLayout());
@@ -1001,7 +962,6 @@ public class TinkoffInvestGui extends JFrame {
                 bondsButton.setText("💾 Экспортировать облигации в БД");
             }
         };
-
         worker.execute();
     }
 
@@ -1044,7 +1004,6 @@ public class TinkoffInvestGui extends JFrame {
             } catch (Exception e) {
                 e.printStackTrace();
             }
-
             new TinkoffInvestGui().setVisible(true);
         });
     }
