@@ -11,6 +11,7 @@ import com.algotrading.tinkoffinvestgui.repository.BondsRepository;
 import com.algotrading.tinkoffinvestgui.repository.InstrumentsRepository;
 import com.algotrading.tinkoffinvestgui.service.AccountService;
 import com.algotrading.tinkoffinvestgui.service.OrdersBusinessService;
+import com.algotrading.tinkoffinvestgui.service.CandlesExportService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import ru.tinkoff.piapi.contract.v1.*;
@@ -50,7 +51,6 @@ public class TinkoffInvestGui extends JFrame {
 
     public TinkoffInvestGui() {
         log.info("=== Запуск приложения Tinkoff Invest GUI ===");
-
         setTitle("Tinkoff Invest - Управление портфелем");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLayout(new BorderLayout());
@@ -146,6 +146,7 @@ public class TinkoffInvestGui extends JFrame {
         JPanel centerPanel = new JPanel(new BorderLayout(0, 10));
         centerPanel.add(buttonsPanel, BorderLayout.NORTH);
         centerPanel.add(scrollPane, BorderLayout.CENTER);
+
         panel.add(centerPanel, BorderLayout.CENTER);
 
         return panel;
@@ -214,6 +215,7 @@ public class TinkoffInvestGui extends JFrame {
 
     private void showAddInstrumentDialog() {
         log.debug("Открытие диалога добавления инструмента");
+
         JDialog dialog = new JDialog(this, "Добавить инструмент", true);
         dialog.setLayout(new GridLayout(11, 2, 10, 10));
         dialog.setSize(500, 450);
@@ -412,6 +414,7 @@ public class TinkoffInvestGui extends JFrame {
 
         int id = (int) instrumentsTable.getValueAt(selectedRow, 0);
         String name = (String) instrumentsTable.getValueAt(selectedRow, 3);
+
         log.debug("Запрос подтверждения удаления инструмента ID: {}, Name: {}", id, name);
 
         int confirm = JOptionPane.showConfirmDialog(this,
@@ -438,9 +441,9 @@ public class TinkoffInvestGui extends JFrame {
 
     private void showOrdersJson() {
         log.info("Формирование JSON заявок");
+
         try {
             List<Instrument> instruments = instrumentsRepository.findAll();
-
             if (instruments.isEmpty()) {
                 log.warn("Нет инструментов для формирования заявок");
                 JOptionPane.showMessageDialog(this,
@@ -517,6 +520,7 @@ public class TinkoffInvestGui extends JFrame {
             infoPanel.add(buttonPanel, BorderLayout.CENTER);
 
             dialog.add(infoPanel, BorderLayout.SOUTH);
+
             dialog.setVisible(true);
 
         } catch (Exception e) {
@@ -536,7 +540,6 @@ public class TinkoffInvestGui extends JFrame {
         try {
             // Получаем инструменты из БД
             List<Instrument> instruments = instrumentsRepository.findAll();
-
             if (instruments.isEmpty()) {
                 log.warn("Нет инструментов для отправки");
                 JOptionPane.showMessageDialog(this,
@@ -578,7 +581,6 @@ public class TinkoffInvestGui extends JFrame {
 
             // Отправляем заявки
             log.info("Начало отправки {} заявок", instruments.size());
-
             OrdersBusinessService service = new OrdersBusinessService();
             OrdersBusinessService.OrdersResult result = service.sendOrdersBatch(instruments);
 
@@ -626,8 +628,8 @@ public class TinkoffInvestGui extends JFrame {
 
         // Информационное сообщение
         JLabel accountsInfoLabel = new JLabel(
-                "<html><b>ℹ️ Информация:</b> Счета на этой вкладке только для просмотра.<br>" +
-                        "Для отправки заявок используется Account ID из БД (parameters.account1)</html>"
+                "ℹ️ Информация: Счета на этой вкладке только для просмотра." +
+                        "Для отправки заявок используется Account ID из БД (parameters.account1)"
         );
         accountsInfoLabel.setFont(new Font("Arial", Font.PLAIN, 12));
         accountsInfoLabel.setBorder(BorderFactory.createEmptyBorder(5, 5, 10, 5));
@@ -687,6 +689,7 @@ public class TinkoffInvestGui extends JFrame {
 
     private void startPortfolioAutoUpdate() {
         log.info("Запуск автообновления портфеля (интервал: {} мин)", PORTFOLIO_UPDATE_INTERVAL_MINUTES);
+
         portfolioUpdateExecutor = Executors.newScheduledThreadPool(1);
         portfolioUpdateExecutor.scheduleAtFixedRate(
                 this::showPortfolio,
@@ -708,6 +711,7 @@ public class TinkoffInvestGui extends JFrame {
                     AccountsApiService service = new AccountsApiService();
                     int count = service.getAccountsCount();
                     GetAccountsResponse accounts = service.getAccounts();
+
                     log.info("Получено счетов из API: {}", count);
 
                     SwingUtilities.invokeLater(() -> {
@@ -724,6 +728,7 @@ public class TinkoffInvestGui extends JFrame {
                                 ConnectorConfig.API_PORT
                         );
                         PortfolioResponse portfolio = portfolioService.getPortfolio(accountId);
+
                         log.info("Получено позиций в портфеле: {}", portfolio.getPositionsCount());
                         SwingUtilities.invokeLater(() -> updatePortfolioTable(portfolio));
                     }
@@ -774,8 +779,10 @@ public class TinkoffInvestGui extends JFrame {
                             ConnectorConfig.API_PORT
                     );
                     PortfolioResponse portfolio = service.getPortfolio(displayAccountId);
+
                     log.info("Портфель загружен, позиций: {}", portfolio.getPositionsCount());
                     SwingUtilities.invokeLater(() -> updatePortfolioTable(portfolio));
+
                 } catch (Exception e) {
                     log.error("Ошибка загрузки портфеля для счета: {}", displayAccountId, e);
                     SwingUtilities.invokeLater(() ->
@@ -827,6 +834,7 @@ public class TinkoffInvestGui extends JFrame {
         Object[][] data = new Object[portfolio.getPositionsCount()][7];
         for (int i = 0; i < portfolio.getPositionsCount(); i++) {
             PortfolioPosition position = portfolio.getPositions(i);
+
             String figi = PortfolioService.getFigi(position);
             String ticker = PortfolioService.getTicker(position);
             String instrumentType = PortfolioService.getInstrumentType(position);
@@ -886,32 +894,232 @@ public class TinkoffInvestGui extends JFrame {
         JPanel panel = new JPanel(new BorderLayout(10, 10));
         panel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
 
-        JLabel title = new JLabel("💾 Экспорт данных облигаций", SwingConstants.CENTER);
+        // Заголовок
+        JLabel title = new JLabel("💾 Экспорт данных из Tinkoff Invest", SwingConstants.CENTER);
         title.setFont(new Font("Arial", Font.BOLD, 18));
         panel.add(title, BorderLayout.NORTH);
 
-        JPanel centerPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 50));
+        // Центральная панель с кнопками
+        JPanel centerPanel = new JPanel();
+        centerPanel.setLayout(new BoxLayout(centerPanel, BoxLayout.Y_AXIS));
+        centerPanel.setBorder(BorderFactory.createEmptyBorder(20, 50, 20, 50));
 
-        bondsButton = new JButton("💾 Экспортировать облигации в БД");
-        bondsButton.setFont(new Font("Arial", Font.BOLD, 16));
+        // ═══════════════════════════════════════════════════════════════
+        // СЕКЦИЯ 1: Экспорт облигаций
+        // ═══════════════════════════════════════════════════════════════
+        JPanel bondsSection = new JPanel();
+        bondsSection.setLayout(new BoxLayout(bondsSection, BoxLayout.Y_AXIS));
+        bondsSection.setBorder(BorderFactory.createTitledBorder("📊 Экспорт списка облигаций"));
+        bondsSection.setMaximumSize(new Dimension(Integer.MAX_VALUE, 150));
+
+        JLabel bondsLabel = new JLabel(
+                "<html><b>Описание:</b> Выгружает все доступные облигации из T-Bank API в таблицу БД public.exportdata</html>"
+        );
+        bondsLabel.setFont(new Font("Arial", Font.PLAIN, 12));
+        bondsLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        bondsButton = new JButton("📥 Выгрузить облигации в БД");
+        bondsButton.setFont(new Font("Arial", Font.BOLD, 14));
+        bondsButton.setAlignmentX(Component.LEFT_ALIGNMENT);
         bondsButton.addActionListener(e -> exportBondsToDatabase());
-        centerPanel.add(bondsButton);
 
-        JLabel infoLabel = new JLabel("Нажмите кнопку для экспорта всех облигаций" +
-                "из T-Bank API в таблицу public.exportdata", SwingConstants.CENTER);
-        infoLabel.setFont(new Font("Arial", Font.PLAIN, 14));
+        bondsSection.add(bondsLabel);
+        bondsSection.add(Box.createVerticalStrut(10));
+        bondsSection.add(bondsButton);
 
-        JPanel infoPanel = new JPanel(new BorderLayout());
-        infoPanel.add(centerPanel, BorderLayout.CENTER);
-        infoPanel.add(infoLabel, BorderLayout.SOUTH);
+        // ═══════════════════════════════════════════════════════════════
+        // СЕКЦИЯ 2: Экспорт исторических свечей
+        // ═══════════════════════════════════════════════════════════════
+        JPanel candlesSection = new JPanel();
+        candlesSection.setLayout(new BoxLayout(candlesSection, BoxLayout.Y_AXIS));
+        candlesSection.setBorder(BorderFactory.createTitledBorder("📈 Экспорт исторических свечей в CSV"));
+        candlesSection.setMaximumSize(new Dimension(Integer.MAX_VALUE, 250));
 
-        panel.add(infoPanel, BorderLayout.CENTER);
+        JLabel candlesLabel = new JLabel(
+                "<html><b>Описание:</b> Выгружает исторические свечи (OHLCV) по инструменту в CSV файл</html>"
+        );
+        candlesLabel.setFont(new Font("Arial", Font.PLAIN, 12));
+        candlesLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JButton candlesButton = new JButton("📥 Экспорт свечей в CSV");
+        candlesButton.setFont(new Font("Arial", Font.BOLD, 14));
+        candlesButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+        candlesButton.addActionListener(e -> showCandlesExportDialog());
+
+        candlesSection.add(candlesLabel);
+        candlesSection.add(Box.createVerticalStrut(10));
+        candlesSection.add(candlesButton);
+
+        // Добавляем секции в центральную панель
+        centerPanel.add(bondsSection);
+        centerPanel.add(Box.createVerticalStrut(20));
+        centerPanel.add(candlesSection);
+        centerPanel.add(Box.createVerticalGlue());
+
+        // Информационная панель внизу
+        String downloadsPath = System.getProperty("user.home") + "\\Downloads";
+        JLabel infoLabel = new JLabel(
+                "<html><center>ℹ️ Все данные получаются через официальный T-Bank Invest API<br>" +
+                        "📁 CSV файлы сохраняются в папку: <b>" + downloadsPath + "</b></center></html>",
+                SwingConstants.CENTER
+        );
+        infoLabel.setFont(new Font("Arial", Font.PLAIN, 12));
+
+        panel.add(centerPanel, BorderLayout.CENTER);
+        panel.add(infoLabel, BorderLayout.SOUTH);
 
         return panel;
     }
 
+    /**
+     * Показывает диалог для экспорта исторических свечей
+     */
+    private void showCandlesExportDialog() {
+        log.info("Открытие диалога экспорта исторических свечей");
+
+        JDialog dialog = new JDialog(this, "📈 Экспорт исторических свечей", true);
+        dialog.setLayout(new BorderLayout(10, 10));
+        dialog.setSize(500, 350);
+        dialog.setLocationRelativeTo(this);
+
+        // Панель с полями ввода
+        JPanel inputPanel = new JPanel(new GridLayout(4, 2, 10, 10));
+        inputPanel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
+
+        // FIGI
+        JLabel figiLabel = new JLabel("FIGI инструмента:");
+        JTextField figiField = new JTextField();
+        figiField.setToolTipText("Например: BBG004730N88 (Сбербанк)");
+
+        // Интервал
+        JLabel intervalLabel = new JLabel("Интервал свечей:");
+        String[] intervals = {"1 день", "1 неделя", "1 месяц", "1 час", "15 минут", "5 минут", "1 минута"};
+        JComboBox<String> intervalCombo = new JComboBox<>(intervals);
+        intervalCombo.setSelectedItem("1 день");
+
+        // Период FROM
+        JLabel fromLabel = new JLabel("Начало периода:");
+        LocalDate defaultFrom = LocalDate.now().minusMonths(4).minusDays(1);
+        JTextField fromField = new JTextField(defaultFrom.toString());
+        fromField.setToolTipText("Формат: YYYY-MM-DD");
+
+        // Период TO
+        JLabel toLabel = new JLabel("Конец периода:");
+        LocalDate defaultTo = LocalDate.now().minusDays(1);
+        JTextField toField = new JTextField(defaultTo.toString());
+        toField.setToolTipText("Формат: YYYY-MM-DD");
+
+        inputPanel.add(figiLabel);
+        inputPanel.add(figiField);
+        inputPanel.add(intervalLabel);
+        inputPanel.add(intervalCombo);
+        inputPanel.add(fromLabel);
+        inputPanel.add(fromField);
+        inputPanel.add(toLabel);
+        inputPanel.add(toField);
+
+        // Информационная панель
+        JPanel infoPanel = new JPanel();
+        infoPanel.setLayout(new BoxLayout(infoPanel, BoxLayout.Y_AXIS));
+        infoPanel.setBorder(BorderFactory.createEmptyBorder(10, 15, 10, 15));
+
+        String downloadsPath = System.getProperty("user.home") + "\\Downloads";
+        JLabel info1 = new JLabel("ℹ️ Формат CSV: Date,Open,High,Low,Close,Volume");
+        info1.setFont(new Font("Arial", Font.PLAIN, 11));
+        JLabel info2 = new JLabel("📄 Имя файла: FIGI_YYYYMMDD-YYYYMMDD.csv");
+        info2.setFont(new Font("Arial", Font.PLAIN, 11));
+        JLabel info3 = new JLabel("📁 Папка: " + downloadsPath);
+        info3.setFont(new Font("Arial", Font.PLAIN, 11));
+
+        infoPanel.add(info1);
+        infoPanel.add(info2);
+        infoPanel.add(info3);
+
+        // Панель кнопок
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 10));
+
+        JButton exportButton = new JButton("📥 Экспортировать");
+        exportButton.setFont(new Font("Arial", Font.BOLD, 12));
+        exportButton.addActionListener(e -> {
+            try {
+                String figi = figiField.getText().trim();
+                if (figi.isEmpty()) {
+                    JOptionPane.showMessageDialog(dialog,
+                            "FIGI не может быть пустым!",
+                            "Ошибка", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+
+                LocalDate from = LocalDate.parse(fromField.getText().trim());
+                LocalDate to = LocalDate.parse(toField.getText().trim());
+                String intervalName = (String) intervalCombo.getSelectedItem();
+
+                log.info("Запуск экспорта свечей: FIGI={}, период={} - {}, интервал={}",
+                        figi, from, to, intervalName);
+
+                exportButton.setEnabled(false);
+                exportButton.setText("⏳ Экспорт...");
+
+                // Запускаем экспорт в отдельном потоке
+                SwingWorker<String, Void> worker = new SwingWorker<>() {
+                    @Override
+                    protected String doInBackground() {
+                        CandlesExportService service = new CandlesExportService();
+                        CandleInterval interval = CandlesExportService.getCandleInterval(intervalName);
+                        return service.exportCandlesToCsv(figi, from, to, interval);
+                    }
+
+                    @Override
+                    protected void done() {
+                        try {
+                            String filePath = get();
+                            log.info("✅ Экспорт завершён успешно: {}", filePath);
+
+                            JOptionPane.showMessageDialog(dialog,
+                                    String.format("✅ Экспорт завершён успешно!\n\nФайл сохранён:\n%s", filePath),
+                                    "Успех", JOptionPane.INFORMATION_MESSAGE);
+
+                            dialog.dispose();
+
+                        } catch (Exception ex) {
+                            log.error("❌ Ошибка экспорта свечей", ex);
+                            JOptionPane.showMessageDialog(dialog,
+                                    "Ошибка экспорта: " + ex.getMessage(),
+                                    "Ошибка", JOptionPane.ERROR_MESSAGE);
+                        } finally {
+                            exportButton.setEnabled(true);
+                            exportButton.setText("📥 Экспортировать");
+                        }
+                    }
+                };
+
+                worker.execute();
+
+            } catch (Exception ex) {
+                log.error("❌ Ошибка валидации данных", ex);
+                JOptionPane.showMessageDialog(dialog,
+                        "Ошибка: " + ex.getMessage(),
+                        "Ошибка", JOptionPane.ERROR_MESSAGE);
+            }
+        });
+
+        JButton cancelButton = new JButton("Отмена");
+        cancelButton.addActionListener(e -> dialog.dispose());
+
+        buttonPanel.add(exportButton);
+        buttonPanel.add(cancelButton);
+
+        // Сборка диалога
+        dialog.add(inputPanel, BorderLayout.CENTER);
+        dialog.add(infoPanel, BorderLayout.NORTH);
+        dialog.add(buttonPanel, BorderLayout.SOUTH);
+
+        dialog.setVisible(true);
+    }
+
     private void exportBondsToDatabase() {
         log.info("Запуск экспорта облигаций в БД");
+
         bondsButton.setEnabled(false);
         bondsButton.setText("⏳ Экспорт в БД...");
 
@@ -959,7 +1167,7 @@ public class TinkoffInvestGui extends JFrame {
             @Override
             protected void done() {
                 bondsButton.setEnabled(true);
-                bondsButton.setText("💾 Экспортировать облигации в БД");
+                bondsButton.setText("📥 Выгрузить облигации в БД");
             }
         };
         worker.execute();
@@ -1004,6 +1212,7 @@ public class TinkoffInvestGui extends JFrame {
             } catch (Exception e) {
                 e.printStackTrace();
             }
+
             new TinkoffInvestGui().setVisible(true);
         });
     }
