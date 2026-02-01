@@ -1827,17 +1827,18 @@ public class TinkoffInvestGui extends JFrame {
 
         // ✅ ОБНОВЛЕННЫЕ КОЛОНКИ: добавлены прибыль БЕЗ комиссии
         String[] columns = {
-                "Тикер",                      // 0
-                "Название",                   // 1
-                "Dlong",                      // 2 ✅ НОВОЕ
-                "Ср.дн.объём",                // 3 ✅ НОВОЕ
-                "Сделок",                     // 4
-                "Прибыльных",                 // 5
-                "Убыточных",                  // 6
-                "Винрейт,%",                  // 7
-                "Общ.приб. БЕЗ ком.,₽",       // 8 ✅ НОВОЕ
+                "Тикер",
+                "Название",
+                "FIGI",
+                "Dlong",
+                "Ср.дн.объём",
+                "Сделок",
+                "Прибыльных",
+                "Убыточных",
+                "Винрейт,%",
+                "Общ.приб. БЕЗ ком.,₽",
                 "Общ.чист.приб.,₽",           // 9
-                "Ср.приб. БЕЗ ком.,₽",        // 10 ✅ НОВОЕ
+                "Ср.приб. БЕЗ ком.,₽",
                 "Ср.чист.приб.,₽",            // 11
                 "Ср.чист.приб.,%",            // 12
                 "Ср.удержание,дн"             // 13
@@ -1851,18 +1852,19 @@ public class TinkoffInvestGui extends JFrame {
 
             data[i][0] = r.getTicker();
             data[i][1] = r.getName();
-            data[i][2] = String.format("%.2f", r.getDlong()); // ✅ НОВОЕ: Dlong
-            data[i][3] = String.format("%.0f", r.getAvgDailyVolume()); // ✅ НОВОЕ: Объём
-            data[i][4] = r.getTotalTrades();
-            data[i][5] = r.getProfitableTrades();
-            data[i][6] = r.getLosingTrades();
-            data[i][7] = String.format("%.1f%%", r.getWinRate());
-            data[i][8] = String.format("%.2f₽", r.getTotalProfitBeforeCommission()); // ✅ НОВОЕ
-            data[i][9] = String.format("%.2f₽", r.getTotalProfit());
-            data[i][10] = String.format("%.2f₽", r.getAvgProfitBeforeCommission()); // ✅ НОВОЕ
-            data[i][11] = String.format("%.2f₽", r.getAvgProfit());
-            data[i][12] = String.format("%.2f%%", r.getAvgProfitPercent());
-            data[i][13] = String.format("%.1f", r.getAvgHoldingDays());
+            data[i][2] = r.getFigi();
+            data[i][3] = String.format("%.2f", r.getDlong()); // ✅ НОВОЕ: Dlong
+            data[i][4] = String.format("%.0f", r.getAvgDailyVolume()); // ✅ НОВОЕ: Объём
+            data[i][5] = r.getTotalTrades();
+            data[i][6] = r.getProfitableTrades();
+            data[i][7] = r.getLosingTrades();
+            data[i][8] = String.format("%.1f%%", r.getWinRate());
+            data[i][9] = String.format("%.2f₽", r.getTotalProfitBeforeCommission()); // ✅ НОВОЕ
+            data[i][10] = String.format("%.2f₽", r.getTotalProfit());
+            data[i][11] = String.format("%.2f₽", r.getAvgProfitBeforeCommission()); // ✅ НОВОЕ
+            data[i][12] = String.format("%.2f₽", r.getAvgProfit());
+            data[i][13] = String.format("%.2f%%", r.getAvgProfitPercent());
+            data[i][14] = String.format("%.1f", r.getAvgHoldingDays());
         }
 
         JTable table = new JTable(new DefaultTableModel(data, columns));
