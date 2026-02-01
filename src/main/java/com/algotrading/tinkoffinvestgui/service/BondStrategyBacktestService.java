@@ -22,6 +22,8 @@ import java.util.stream.Collectors;
  * Сервис для бэктестинга стратегии "ловец дна"
  * ✅ С учётом комиссии брокера из БД
  * ✅ Использует ту же логику что и BondStrategyCalculator
+ * ✅ С фильтрацией по среднедневному объёму торгов
+ * ✅ С выводом Dlong и прибыли без комиссии в отчёт
  */
 public class BondStrategyBacktestService {
 
@@ -47,8 +49,8 @@ public class BondStrategyBacktestService {
      * Запуск бэктестинга стратегии
      */
     public BacktestReport runBacktest(LocalDate startDate, LocalDate endDate, BacktestFilters filters) throws Exception {
-        log.info("🧪 Начало бэктестинга: {} - {} с фильтрами: валюта={}, без_амортизации={}",
-                startDate, endDate, filters.currency, filters.withoutAmortization);
+        log.info("🧪 Начало бэктестинга: {} - {} с фильтрами: валюта={}, без_амортизации={}, мин_объём={}",
+                startDate, endDate, filters.currency, filters.withoutAmortization, filters.minAvgDailyVolume);
 
         // ✅ Загрузить комиссию брокера из БД
         double brokerCommission = parametersRepository.getBrokerCommissionDecimal();
@@ -66,6 +68,14 @@ public class BondStrategyBacktestService {
             throw new Exception("Нет облигаций для бэктестинга. Проверьте фильтры.");
         }
 
+        // ✅ ФИЛЬТРАЦИЯ ПО СРЕДНЕДНЕВНОМУ ОБЪЁМУ
+        if (filters.minAvgDailyVolume > 0) {
+            int beforeVolumeFilter = bonds.size();
+            bonds = filterByAvgDailyVolume(bonds, filters.minAvgDailyVolume, analysisPeriodMonths);
+            log.info("📊 Фильтр по объёму торгов (мин. {} лот/день): {} → {} облигаций",
+                    filters.minAvgDailyVolume, beforeVolumeFilter, bonds.size());
+        }
+
         // Для каждой облигации запустить бэктест
         List<BondBacktestResult> results = new ArrayList<>();
         int processed = 0;
@@ -81,10 +91,10 @@ public class BondStrategyBacktestService {
                 // ✅ Передаём комиссию в бэктест
                 BondBacktestResult result = backtestBond(bond, startDate, endDate,
                         analysisPeriodMonths, brokerCommission);
+
                 if (result.getTotalTrades() > 0) {
                     results.add(result);
                 }
-
             } catch (Exception e) {
                 log.warn("⚠️ Ошибка бэктеста для {}: {}", bond.ticker, e.getMessage());
             }
@@ -134,12 +144,43 @@ public class BondStrategyBacktestService {
     }
 
     /**
+     * ✅ НОВОЕ: Фильтрация по среднедневному объёму торгов
+     */
+    private List<BondInfo> filterByAvgDailyVolume(List<BondInfo> bonds, double minVolume, int analysisPeriodMonths) {
+        List<BondInfo> filtered = new ArrayList<>();
+        LocalDate endDate = LocalDate.now().minusDays(1);
+        LocalDate startDate = endDate.minusMonths(analysisPeriodMonths);
+
+        for (BondInfo bond : bonds) {
+            try {
+                List<HistoricCandle> candles = candlesApiService.getCandles(
+                        bond.figi, startDate, endDate, CandleInterval.CANDLE_INTERVAL_DAY);
+
+                if (!candles.isEmpty()) {
+                    double avgVolume = candles.stream()
+                            .mapToDouble(c -> c.getVolume())
+                            .average()
+                            .orElse(0);
+
+                    if (avgVolume >= minVolume) {
+                        bond.avgDailyVolume = avgVolume;
+                        filtered.add(bond);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("⚠️ Ошибка загрузки свечей для {}: {}", bond.ticker, e.getMessage());
+            }
+        }
+
+        return filtered;
+    }
+
+    /**
      * Бэктестинг для одной облигации
      * ✅ С использованием той же логики что в BondStrategyCalculator
      */
     private BondBacktestResult backtestBond(BondInfo bond, LocalDate startDate, LocalDate endDate,
                                             int analysisPeriodMonths, double brokerCommission) throws Exception {
-
         // Загрузить исторические данные
         LocalDate dataStart = startDate.minusMonths(analysisPeriodMonths);
         List<HistoricCandle> allCandles = candlesApiService.getCandles(
@@ -218,23 +259,27 @@ public class BondStrategyBacktestService {
                     double actualSellPrice = lastPrice;
                     double actualSellCommission = actualSellPrice * brokerCommission;
 
+                    // ✅ ПРИБЫЛЬ БЕЗ КОМИССИИ
+                    double profitBeforeCommission = actualSellPrice - currentTrade.getBuyPrice();
+
                     // ✅ ЧИСТАЯ ПРИБЫЛЬ с учётом ВСЕХ комиссий
                     double totalCommissions = currentTrade.getBuyCommission() + actualSellCommission;
-                    double netProfit = (actualSellPrice - currentTrade.getBuyPrice()) - totalCommissions;
+                    double netProfit = profitBeforeCommission - totalCommissions;
                     double profitPercent = (netProfit / currentTrade.getBuyPrice()) * 100;
 
                     currentTrade.setSellDate(date);
                     currentTrade.setSellPrice(actualSellPrice);
                     currentTrade.setSellCommission(actualSellCommission);
                     currentTrade.setHoldingDays(holdingDays);
+                    currentTrade.setProfitBeforeCommission(profitBeforeCommission); // ✅ НОВОЕ
                     currentTrade.setProfit(netProfit);
                     currentTrade.setProfitPercent(profitPercent);
 
                     trades.add(currentTrade);
 
                     String reason = reachedTarget ? "таргет" : "таймаут";
-                    log.debug("📤 {} Продажа по {:.2f}₽ (прибыль {:.2f}₽/{:.2f}%, комиссии {:.2f}₽, причина: {})",
-                            bond.ticker, actualSellPrice, netProfit, profitPercent, totalCommissions, reason);
+                    log.debug("📤 {} Продажа по {:.2f}₽ (прибыль БЕЗ комиссии {:.2f}₽, чистая {:.2f}₽/{:.2f}%, комиссии {:.2f}₽, причина: {})",
+                            bond.ticker, actualSellPrice, profitBeforeCommission, netProfit, profitPercent, totalCommissions, reason);
 
                     currentTrade = null;
                 }
@@ -246,37 +291,44 @@ public class BondStrategyBacktestService {
             double[] lastPrices = allCandles.stream()
                     .mapToDouble(c -> c.getClose().getUnits() + c.getClose().getNano() / 1e9)
                     .toArray();
-            double lastPrice = lastPrices[lastPrices.length - 1];
 
+            double lastPrice = lastPrices[lastPrices.length - 1];
             int holdingDays = (int) (endDate.toEpochDay() - currentTrade.getBuyDate().toEpochDay());
             double actualSellCommission = lastPrice * brokerCommission;
+
+            double profitBeforeCommission = lastPrice - currentTrade.getBuyPrice();
             double totalCommissions = currentTrade.getBuyCommission() + actualSellCommission;
-            double netProfit = (lastPrice - currentTrade.getBuyPrice()) - totalCommissions;
+            double netProfit = profitBeforeCommission - totalCommissions;
             double profitPercent = (netProfit / currentTrade.getBuyPrice()) * 100;
 
             currentTrade.setSellDate(endDate);
             currentTrade.setSellPrice(lastPrice);
             currentTrade.setSellCommission(actualSellCommission);
             currentTrade.setHoldingDays(holdingDays);
+            currentTrade.setProfitBeforeCommission(profitBeforeCommission); // ✅ НОВОЕ
             currentTrade.setProfit(netProfit);
             currentTrade.setProfitPercent(profitPercent);
-
             trades.add(currentTrade);
 
-            log.debug("📤 {} Закрытие позиции в конце периода по {:.2f}₽ (прибыль {:.2f}₽/{:.2f}%)",
-                    bond.ticker, lastPrice, netProfit, profitPercent);
+            log.debug("📤 {} Закрытие позиции в конце периода по {:.2f}₽ (прибыль БЕЗ комиссии {:.2f}₽, чистая {:.2f}₽/{:.2f}%)",
+                    bond.ticker, lastPrice, profitBeforeCommission, netProfit, profitPercent);
         }
 
         // Сформировать результат
         BondBacktestResult result = new BondBacktestResult();
         result.setTicker(bond.ticker);
         result.setName(bond.name);
+        result.setFigi(bond.figi);
+        result.setDlong(bond.dlong); // ✅ НОВОЕ: Dlong
+        result.setAvgDailyVolume(bond.avgDailyVolume); // ✅ НОВОЕ: Объём
         result.setTrades(trades);
 
         int profitable = (int) trades.stream().filter(t -> t.getProfit() > 0).count();
         int losing = trades.size() - profitable;
         double totalProfit = trades.stream().mapToDouble(Trade::getProfit).sum();
+        double totalProfitBeforeCommission = trades.stream().mapToDouble(Trade::getProfitBeforeCommission).sum(); // ✅ НОВОЕ
         double avgProfit = trades.isEmpty() ? 0 : totalProfit / trades.size();
+        double avgProfitBeforeCommission = trades.isEmpty() ? 0 : totalProfitBeforeCommission / trades.size(); // ✅ НОВОЕ
         double avgProfitPercent = trades.stream().mapToDouble(Trade::getProfitPercent).average().orElse(0);
         double winRate = trades.isEmpty() ? 0 : (profitable * 100.0 / trades.size());
         double avgHolding = trades.stream().mapToInt(Trade::getHoldingDays).average().orElse(0);
@@ -285,7 +337,9 @@ public class BondStrategyBacktestService {
         result.setProfitableTrades(profitable);
         result.setLosingTrades(losing);
         result.setTotalProfit(totalProfit);
+        result.setTotalProfitBeforeCommission(totalProfitBeforeCommission); // ✅ НОВОЕ
         result.setAvgProfit(avgProfit);
+        result.setAvgProfitBeforeCommission(avgProfitBeforeCommission); // ✅ НОВОЕ
         result.setAvgProfitPercent(avgProfitPercent);
         result.setWinRate(winRate);
         result.setAvgHoldingDays(avgHolding);
@@ -302,6 +356,7 @@ public class BondStrategyBacktestService {
             if (value != null && !value.trim().isEmpty()) {
                 return Integer.parseInt(value.trim());
             }
+
             log.warn("⚠️ Параметр analysis_period_months не найден в БД, используем 4 по умолчанию");
             return 4;
         } catch (NumberFormatException e) {
@@ -428,6 +483,9 @@ public class BondStrategyBacktestService {
         BondBacktestResult result = new BondBacktestResult();
         result.setTicker(bond.ticker);
         result.setName(bond.name);
+        result.setFigi(bond.figi);
+        result.setDlong(bond.dlong);
+        result.setAvgDailyVolume(bond.avgDailyVolume);
         result.setTrades(new ArrayList<>());
         return result;
     }
@@ -442,6 +500,7 @@ public class BondStrategyBacktestService {
         public String ticker;
         public String name;
         public double dlong;
+        public double avgDailyVolume = 0; // ✅ НОВОЕ: среднедневной объём
     }
 
     /**
@@ -454,6 +513,7 @@ public class BondStrategyBacktestService {
         public int maxMonthsToMaturity = 15;
         public boolean requireDlong = true;
         public boolean excludeHighRisk = true;
+        public double minAvgDailyVolume = 0; // ✅ НОВОЕ: минимальный среднедневной объём (лотов/день)
     }
 
     /**
@@ -463,13 +523,14 @@ public class BondStrategyBacktestService {
         private LocalDate buyDate;
         private double buyPrice;
         private double volatility;
-        private double buyCommission;        // ✅ НОВОЕ: комиссия покупки
-        private double targetSellPrice;      // ✅ НОВОЕ: таргет цены продажи
+        private double buyCommission;
+        private double targetSellPrice;
         private LocalDate sellDate;
         private double sellPrice;
-        private double sellCommission;       // ✅ НОВОЕ: комиссия продажи
+        private double sellCommission;
         private int holdingDays;
-        private double profit;               // ✅ ИЗМЕНЕНО: теперь чистая прибыль после комиссий
+        private double profitBeforeCommission; // ✅ НОВОЕ: прибыль БЕЗ комиссии
+        private double profit; // Чистая прибыль после комиссий
         private double profitPercent;
 
         // Getters and Setters
@@ -500,6 +561,9 @@ public class BondStrategyBacktestService {
         public int getHoldingDays() { return holdingDays; }
         public void setHoldingDays(int holdingDays) { this.holdingDays = holdingDays; }
 
+        public double getProfitBeforeCommission() { return profitBeforeCommission; }
+        public void setProfitBeforeCommission(double profitBeforeCommission) { this.profitBeforeCommission = profitBeforeCommission; }
+
         public double getProfit() { return profit; }
         public void setProfit(double profit) { this.profit = profit; }
 
@@ -513,11 +577,16 @@ public class BondStrategyBacktestService {
     public static class BondBacktestResult {
         private String ticker;
         private String name;
+        private String figi;
+        private double dlong; // ✅ НОВОЕ
+        private double avgDailyVolume; // ✅ НОВОЕ
         private List<Trade> trades;
         private int totalTrades;
         private int profitableTrades;
         private int losingTrades;
+        private double totalProfitBeforeCommission; // ✅ НОВОЕ
         private double totalProfit;
+        private double avgProfitBeforeCommission; // ✅ НОВОЕ
         private double avgProfit;
         private double avgProfitPercent;
         private double winRate;
@@ -529,6 +598,15 @@ public class BondStrategyBacktestService {
 
         public String getName() { return name; }
         public void setName(String name) { this.name = name; }
+
+        public String getFigi() {return figi;}
+        public void setFigi(String figi) {this.figi = figi;}
+
+        public double getDlong() { return dlong; }
+        public void setDlong(double dlong) { this.dlong = dlong; }
+
+        public double getAvgDailyVolume() { return avgDailyVolume; }
+        public void setAvgDailyVolume(double avgDailyVolume) { this.avgDailyVolume = avgDailyVolume; }
 
         public List<Trade> getTrades() { return trades; }
         public void setTrades(List<Trade> trades) { this.trades = trades; }
@@ -542,8 +620,14 @@ public class BondStrategyBacktestService {
         public int getLosingTrades() { return losingTrades; }
         public void setLosingTrades(int losingTrades) { this.losingTrades = losingTrades; }
 
+        public double getTotalProfitBeforeCommission() { return totalProfitBeforeCommission; }
+        public void setTotalProfitBeforeCommission(double totalProfitBeforeCommission) { this.totalProfitBeforeCommission = totalProfitBeforeCommission; }
+
         public double getTotalProfit() { return totalProfit; }
         public void setTotalProfit(double totalProfit) { this.totalProfit = totalProfit; }
+
+        public double getAvgProfitBeforeCommission() { return avgProfitBeforeCommission; }
+        public void setAvgProfitBeforeCommission(double avgProfitBeforeCommission) { this.avgProfitBeforeCommission = avgProfitBeforeCommission; }
 
         public double getAvgProfit() { return avgProfit; }
         public void setAvgProfit(double avgProfit) { this.avgProfit = avgProfit; }
