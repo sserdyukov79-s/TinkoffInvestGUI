@@ -29,12 +29,19 @@ public class BondsAnalysisService {
         LocalDate minMaturityDate = now.plusDays(criteria.getMinDaysToMaturity());
         LocalDate maxMaturityDate = now.plusMonths(criteria.getMaxMonthsToMaturity());
 
+        log.info("📅 Период фильтрации: от {} до {}", minMaturityDate, maxMaturityDate);
+
+        // Счётчики для статистики
+        int[] stats = new int[6]; // [total, currency, amort, maturity, dlong, risk]
+        stats[0] = bonds.size();
+
         List<Bond> filtered = bonds.stream()
                 .filter(bond -> {
                     // 1. Фильтр по валюте номинала
                     if (criteria.getNominalCurrency() != null && !criteria.getNominalCurrency().isEmpty()) {
                         String bondCurrency = bond.getNominal() != null ? bond.getNominal().getCurrency() : "";
                         if (!bondCurrency.equalsIgnoreCase(criteria.getNominalCurrency())) {
+                            stats[1]++;
                             return false;
                         }
                     }
@@ -42,6 +49,7 @@ public class BondsAnalysisService {
                     // 2. Фильтр: без амортизации
                     if (criteria.isWithoutAmortization()) {
                         if (bond.getAmortizationFlag()) {
+                            stats[2]++;
                             return false;
                         }
                     }
@@ -51,15 +59,24 @@ public class BondsAnalysisService {
                         long maturitySeconds = bond.getMaturityDate().getSeconds();
                         LocalDate maturityDate = LocalDate.ofEpochDay(maturitySeconds / 86400);
                         if (maturityDate.isBefore(minMaturityDate) || maturityDate.isAfter(maxMaturityDate)) {
+                            stats[3]++;
                             return false;
                         }
                     } else {
+                        stats[3]++;
                         return false; // Нет даты погашения
                     }
 
                     // 4. Фильтр: требовать dlong > 0
                     if (criteria.isRequireDlong()) {
-                        if (!bond.hasDlong() || bond.getDlong().getUnits() == 0) {
+                        if (!bond.hasDlong()) {
+                            stats[4]++;
+                            return false;
+                        }
+                        // Правильный расчёт dlong с учётом дробной части
+                        double dlongValue = bond.getDlong().getUnits() + bond.getDlong().getNano() / 1e9;
+                        if (dlongValue <= 0) {
+                            stats[4]++;
                             return false;
                         }
                     }
@@ -68,6 +85,7 @@ public class BondsAnalysisService {
                     if (criteria.isExcludeHighRisk()) {
                         RiskLevel riskLevel = bond.getRiskLevel();
                         if (riskLevel == RiskLevel.RISK_LEVEL_HIGH) {
+                            stats[5]++;
                             return false;
                         }
                     }
@@ -76,7 +94,36 @@ public class BondsAnalysisService {
                 })
                 .collect(Collectors.toList());
 
-        log.info("После фильтрации осталось {} облигаций", filtered.size());
+        // Выводим статистику фильтрации
+        log.info("📊 Статистика фильтрации:");
+        log.info("   Всего облигаций: {}", stats[0]);
+        log.info("   ❌ Отброшено по валюте: {}", stats[1]);
+        log.info("   ❌ Отброшено по амортизации: {}", stats[2]);
+        log.info("   ❌ Отброшено по сроку погашения: {}", stats[3]);
+        log.info("   ❌ Отброшено по dlong: {}", stats[4]);
+        log.info("   ❌ Отброшено по риску: {}", stats[5]);
+        log.info("   ✅ Прошло фильтрацию: {}", filtered.size());
+
+        // Если результат пустой, выводим примеры первых 3 облигаций
+        if (filtered.isEmpty() && !bonds.isEmpty()) {
+            log.warn("⚠️ Ни одна облигация не прошла фильтрацию! Примеры первых 3 облигаций:");
+            for (int i = 0; i < Math.min(3, bonds.size()); i++) {
+                Bond b = bonds.get(i);
+                String currency = b.getNominal() != null ? b.getNominal().getCurrency() : "NULL";
+                boolean hasMaturity = b.hasMaturityDate();
+                LocalDate maturity = null;
+                if (hasMaturity) {
+                    maturity = LocalDate.ofEpochDay(b.getMaturityDate().getSeconds() / 86400);
+                }
+                boolean hasDlong = b.hasDlong();
+                double dlong = hasDlong ? (b.getDlong().getUnits() + b.getDlong().getNano() / 1e9) : 0;
+
+                log.warn("   Облигация #{}: Ticker={}, Currency={}, Amort={}, Maturity={}, Dlong={}, Risk={}",
+                        i + 1, b.getTicker(), currency, b.getAmortizationFlag(),
+                        hasMaturity ? maturity : "НЕТ", dlong, b.getRiskLevel().name());
+            }
+        }
+
         return filtered;
     }
 
@@ -242,8 +289,11 @@ public class BondsAnalysisService {
         }
 
         // 3. Наличие dlong — бонус
-        if (bond.hasDlong() && bond.getDlong().getUnits() > 0) {
-            score += 50;
+        if (bond.hasDlong()) {
+            double dlongValue = bond.getDlong().getUnits() + bond.getDlong().getNano() / 1e9;
+            if (dlongValue > 0) {
+                score += 50;
+            }
         }
 
         // 4. Низкий уровень риска — бонус
