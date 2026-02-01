@@ -7,11 +7,14 @@ import com.algotrading.tinkoffinvestgui.api.AccountsApiService;
 import com.algotrading.tinkoffinvestgui.api.CandlesApiService;
 import com.algotrading.tinkoffinvestgui.config.AppConstants;
 import com.algotrading.tinkoffinvestgui.config.ConnectorConfig;
+import com.algotrading.tinkoffinvestgui.config.DatabaseConnectionPool;
 import com.algotrading.tinkoffinvestgui.entity.Instrument;
 import com.algotrading.tinkoffinvestgui.repository.BondsRepository;
 import com.algotrading.tinkoffinvestgui.repository.InstrumentsRepository;
+import com.algotrading.tinkoffinvestgui.repository.ParametersRepository;
 import com.algotrading.tinkoffinvestgui.service.AccountService;
 import com.algotrading.tinkoffinvestgui.service.OrdersBusinessService;
+import com.algotrading.tinkoffinvestgui.service.OrdersScheduler;
 import com.algotrading.tinkoffinvestgui.service.CandlesExportService;
 import com.algotrading.tinkoffinvestgui.service.BondsAnalysisService;
 import org.slf4j.Logger;
@@ -27,7 +30,12 @@ import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
+/**
+ * Главный класс GUI приложения Tinkoff Invest
+ * С интегрированным планировщиком автоматических заявок
+ */
 public class TinkoffInvestGui extends JFrame {
+
     private static final Logger log = LoggerFactory.getLogger(TinkoffInvestGui.class);
 
     // Общие компоненты
@@ -51,10 +59,22 @@ public class TinkoffInvestGui extends JFrame {
     private JButton portfolioButton;
     private JButton bondsButton;
 
+    // Планировщик автоматических заявок
+    private OrdersScheduler ordersScheduler;
+
     public TinkoffInvestGui() {
         log.info("=== Запуск приложения Tinkoff Invest GUI ===");
         setTitle("Tinkoff Invest - Управление портфелем");
-        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+
+        // ИЗМЕНЕНО: Корректное закрытие через shutdown()
+        setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+        addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosing(java.awt.event.WindowEvent windowEvent) {
+                shutdown();
+            }
+        });
+
         setLayout(new BorderLayout());
         setSize(AppConstants.WINDOW_WIDTH, AppConstants.WINDOW_HEIGHT);
         setLocationRelativeTo(null);
@@ -86,6 +106,43 @@ public class TinkoffInvestGui extends JFrame {
         updateAccountsAndPortfolio();
 
         log.info("Приложение успешно инициализировано");
+
+        // НОВОЕ: Запускаем планировщик автоматических заявок
+        initOrdersScheduler();
+    }
+
+    /**
+     * Инициализация планировщика автоматических заявок
+     * Выставляет заявки автоматически по будням после start_time из БД
+     */
+    private void initOrdersScheduler() {
+        log.info("🔧 Инициализация планировщика автоматических заявок");
+
+        ParametersRepository paramsRepo = new ParametersRepository();
+
+        // Задача для выставления заявок
+        Runnable ordersTask = () -> {
+            try {
+                log.info("📋 Запуск автоматического выставления заявок из планировщика");
+
+                // Выполняем отправку заявок в GUI-потоке
+                SwingUtilities.invokeLater(() -> {
+                    try {
+                        sendOrdersToExchange();
+                    } catch (Exception e) {
+                        log.error("❌ Ошибка при автоматическом выставлении заявок", e);
+                    }
+                });
+
+            } catch (Exception e) {
+                log.error("❌ Ошибка в задаче автоматического выставления заявок: {}", e.getMessage(), e);
+            }
+        };
+
+        ordersScheduler = new OrdersScheduler(paramsRepo, ordersTask);
+        ordersScheduler.start();
+
+        log.info("✅ Планировщик автоматических заявок запущен");
     }
 
     // ============================================================
@@ -139,11 +196,9 @@ public class TinkoffInvestGui extends JFrame {
         // Таблица инструментов
         String[] columns = {"ID", "Дата", "FIGI", "Название", "ISIN", "Приоритет",
                 "Цена покупки", "Кол-во покупки", "Цена продажи", "Кол-во продажи"};
-
         instrumentsTable = new JTable(new DefaultTableModel(new Object[][]{{"Загрузка..."}}, columns));
         instrumentsTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         instrumentsTable.getTableHeader().setReorderingAllowed(false);
-
         JScrollPane scrollPane = new JScrollPane(instrumentsTable);
 
         // Компоновка
@@ -418,7 +473,6 @@ public class TinkoffInvestGui extends JFrame {
         String name = (String) instrumentsTable.getValueAt(selectedRow, 3);
 
         log.debug("Запрос подтверждения удаления инструмента ID: {}, Name: {}", id, name);
-
         int confirm = JOptionPane.showConfirmDialog(this,
                 "Удалить инструмент \"" + name + "\"?",
                 "Подтверждение удаления",
@@ -467,7 +521,6 @@ public class TinkoffInvestGui extends JFrame {
 
             log.debug("Формирование заявок для {} инструментов, accountId: {}",
                     instruments.size(), accountId);
-
             String ordersJson = OrdersService.createOrdersJson(instruments, accountId);
             log.info("JSON заявок сформирован успешно");
 
@@ -488,13 +541,11 @@ public class TinkoffInvestGui extends JFrame {
             jsonArea.setFont(new Font("Monospaced", Font.PLAIN, 12));
             jsonArea.setLineWrap(false);
             jsonArea.setWrapStyleWord(false);
-
             JScrollPane scrollPane = new JScrollPane(jsonArea);
             scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
             dialog.add(scrollPane, BorderLayout.CENTER);
 
             JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 10));
-
             JButton copyButton = new JButton("📋 Скопировать в буфер");
             copyButton.addActionListener(e -> {
                 java.awt.datatransfer.StringSelection selection =
@@ -508,7 +559,6 @@ public class TinkoffInvestGui extends JFrame {
 
             JButton closeButton = new JButton("❌ Закрыть");
             closeButton.addActionListener(e -> dialog.dispose());
-
             buttonPanel.add(copyButton);
             buttonPanel.add(closeButton);
 
@@ -557,7 +607,8 @@ public class TinkoffInvestGui extends JFrame {
                         "Ошибка конфигурации", JOptionPane.ERROR_MESSAGE);
                 return;
             }
-
+// ⚠️ ПОДТВЕРЖДЕНИЕ ОТКЛЮЧЕНО ДЛЯ АВТОМАТИЧЕСКОЙ ТОРГОВЛИ
+        /*
             // Подтверждение от пользователя
             String accountId = AccountService.getActiveAccountId();
             int confirm = JOptionPane.showConfirmDialog(this,
@@ -577,6 +628,9 @@ public class TinkoffInvestGui extends JFrame {
                 log.info("Отправка заявок отменена пользователем");
                 return;
             }
+        */
+
+            log.info("🤖 Автоматическая отправка {} заявок (без подтверждения)", instruments.size());
 
             // Отправляем заявки
             log.info("Начало отправки {} заявок", instruments.size());
@@ -627,8 +681,8 @@ public class TinkoffInvestGui extends JFrame {
 
         // Информационное сообщение
         JLabel accountsInfoLabel = new JLabel(
-                "<html>ℹ️ <b>Информация:</b> Счета на этой вкладке только для просмотра." +
-                        "<br>Для отправки заявок используется Account ID из БД (parameters.account1)</html>"
+                "ℹ️ Информация: Счета на этой вкладке только для просмотра. " +
+                        "Для отправки заявок используется Account ID из БД (parameters.account1)"
         );
         accountsInfoLabel.setFont(new Font("Arial", Font.PLAIN, 12));
         accountsInfoLabel.setBorder(BorderFactory.createEmptyBorder(5, 5, 10, 5));
@@ -637,7 +691,6 @@ public class TinkoffInvestGui extends JFrame {
         accountsLabel.setFont(new Font("Arial", Font.BOLD, 14));
 
         JPanel buttonsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 0));
-
         refreshButton = new JButton("🔄 Обновить счета");
         refreshButton.addActionListener(e -> updateAccounts());
 
@@ -682,7 +735,6 @@ public class TinkoffInvestGui extends JFrame {
 
         panel.add(topPanel, BorderLayout.NORTH);
         panel.add(centerPanel, BorderLayout.CENTER);
-
         return panel;
     }
 
@@ -709,7 +761,6 @@ public class TinkoffInvestGui extends JFrame {
                     AccountsApiService service = new AccountsApiService();
                     int count = service.getAccountsCount();
                     GetAccountsResponse accounts = service.getAccounts();
-
                     log.info("Получено счетов из API: {}", count);
 
                     SwingUtilities.invokeLater(() -> {
@@ -720,16 +771,13 @@ public class TinkoffInvestGui extends JFrame {
                     // Загружаем портфель для первого счёта (для отображения)
                     if (!accounts.getAccountsList().isEmpty()) {
                         String accountId = accounts.getAccountsList().get(0).getId();
-
                         PortfolioService portfolioService = new PortfolioService(
                                 ConnectorConfig.getApiToken(),
                                 ConnectorConfig.API_URL,
                                 ConnectorConfig.API_PORT
                         );
-
                         PortfolioResponse portfolio = portfolioService.getPortfolio(accountId);
                         log.info("Получено позиций в портфеле: {}", portfolio.getPositionsCount());
-
                         SwingUtilities.invokeLater(() -> updatePortfolioTable(portfolio));
                     }
 
@@ -764,7 +812,7 @@ public class TinkoffInvestGui extends JFrame {
         }
 
         String displayAccountId = (String) accountsTable.getValueAt(0, 0);
-        log.info("Загрузка портфеля для отображения, счета: {}", displayAccountId);
+        log.info("Загрузка портфеля для отображения, счёта: {}", displayAccountId);
 
         portfolioButton.setEnabled(false);
         portfolioButton.setText("⏳ Загрузка портфеля...");
@@ -778,12 +826,9 @@ public class TinkoffInvestGui extends JFrame {
                             ConnectorConfig.API_URL,
                             ConnectorConfig.API_PORT
                     );
-
                     PortfolioResponse portfolio = service.getPortfolio(displayAccountId);
                     log.info("Портфель загружен, позиций: {}", portfolio.getPositionsCount());
-
                     SwingUtilities.invokeLater(() -> updatePortfolioTable(portfolio));
-
                 } catch (Exception e) {
                     log.error("Ошибка загрузки портфеля для счета: {}", displayAccountId, e);
                     SwingUtilities.invokeLater(() ->
@@ -835,7 +880,6 @@ public class TinkoffInvestGui extends JFrame {
         Object[][] data = new Object[portfolio.getPositionsCount()][7];
         for (int i = 0; i < portfolio.getPositionsCount(); i++) {
             PortfolioPosition position = portfolio.getPositions(i);
-
             String figi = PortfolioService.getFigi(position);
             String ticker = PortfolioService.getTicker(position);
             String instrumentType = PortfolioService.getInstrumentType(position);
@@ -905,16 +949,14 @@ public class TinkoffInvestGui extends JFrame {
         centerPanel.setLayout(new BoxLayout(centerPanel, BoxLayout.Y_AXIS));
         centerPanel.setBorder(BorderFactory.createEmptyBorder(20, 50, 20, 50));
 
-        // ═══════════════════════════════════════════════════════════════
-        // СЕКЦИЯ 1: Экспорт облигаций
-        // ═══════════════════════════════════════════════════════════════
+        // Секция 1: Экспорт облигаций
         JPanel bondsSection = new JPanel();
         bondsSection.setLayout(new BoxLayout(bondsSection, BoxLayout.Y_AXIS));
         bondsSection.setBorder(BorderFactory.createTitledBorder("📊 Экспорт списка облигаций"));
         bondsSection.setMaximumSize(new Dimension(Integer.MAX_VALUE, 150));
 
         JLabel bondsLabel = new JLabel(
-                "<html>Описание: Выгружает все доступные облигации из T-Bank API в таблицу БД public.exportdata</html>"
+                "Описание: Выгружает все доступные облигации из T-Bank API в таблицу БД public.exportdata"
         );
         bondsLabel.setFont(new Font("Arial", Font.PLAIN, 12));
         bondsLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -928,17 +970,15 @@ public class TinkoffInvestGui extends JFrame {
         bondsSection.add(Box.createVerticalStrut(10));
         bondsSection.add(bondsButton);
 
-        // ═══════════════════════════════════════════════════════════════
-        // СЕКЦИЯ 2: Анализ облигаций (НОВАЯ)
-        // ═══════════════════════════════════════════════════════════════
+        // Секция 2: Анализ облигаций
         JPanel analysisSection = new JPanel();
         analysisSection.setLayout(new BoxLayout(analysisSection, BoxLayout.Y_AXIS));
         analysisSection.setBorder(BorderFactory.createTitledBorder("📈 Анализ облигаций"));
         analysisSection.setMaximumSize(new Dimension(Integer.MAX_VALUE, 180));
 
         JLabel analysisLabel = new JLabel(
-                "<html>Описание: Анализирует облигации по заданным критериям (валюта, амортизация, dlong, риск).<br>" +
-                        "Загружает свечи за 4 месяца и рассчитывает метрики (волатильность, тренд, оценка).</html>"
+                "Описание: Анализирует облигации по заданным критериям (валюта, амортизация, dlong, риск). " +
+                        "Загружает свечи за 4 месяца и рассчитывает метрики (волатильность, тренд, оценка)."
         );
         analysisLabel.setFont(new Font("Arial", Font.PLAIN, 12));
         analysisLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -955,16 +995,14 @@ public class TinkoffInvestGui extends JFrame {
         analysisSection.add(Box.createVerticalStrut(10));
         analysisSection.add(analysisButton);
 
-        // ═══════════════════════════════════════════════════════════════
-        // СЕКЦИЯ 3: Экспорт исторических свечей
-        // ═══════════════════════════════════════════════════════════════
+        // Секция 3: Экспорт исторических свечей
         JPanel candlesSection = new JPanel();
         candlesSection.setLayout(new BoxLayout(candlesSection, BoxLayout.Y_AXIS));
         candlesSection.setBorder(BorderFactory.createTitledBorder("📈 Экспорт исторических свечей в CSV"));
         candlesSection.setMaximumSize(new Dimension(Integer.MAX_VALUE, 150));
 
         JLabel candlesLabel = new JLabel(
-                "<html>Описание: Выгружает исторические свечи (OHLCV) по инструменту в CSV файл</html>"
+                "Описание: Выгружает исторические свечи (OHLCV) по инструменту в CSV файл"
         );
         candlesLabel.setFont(new Font("Arial", Font.PLAIN, 12));
         candlesLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -989,24 +1027,19 @@ public class TinkoffInvestGui extends JFrame {
         // Информационная панель внизу
         String downloadsPath = System.getProperty("user.home") + "\\Downloads";
         JLabel infoLabel = new JLabel(
-                "<html>ℹ️ Все данные получаются через официальный T-Bank Invest API<br>" +
-                        "📁 CSV файлы сохраняются в папку: " + downloadsPath + "</html>",
+                "ℹ️ Все данные получаются через официальный T-Bank Invest API | " +
+                        "📁 CSV файлы сохраняются в папку: " + downloadsPath + "",
                 SwingConstants.CENTER
         );
         infoLabel.setFont(new Font("Arial", Font.PLAIN, 12));
 
         panel.add(centerPanel, BorderLayout.CENTER);
         panel.add(infoLabel, BorderLayout.SOUTH);
-
         return panel;
     }
 
-    /**
-     * Показывает диалог анализа облигаций (НОВЫЙ МЕТОД)
-     */
     private void showBondsAnalysisDialog() {
         log.info("Открываем диалог анализа облигаций");
-
         JDialog dialog = new JDialog(this, "🔍 Анализ облигаций", true);
         dialog.setSize(450, 450);
         dialog.setLocationRelativeTo(this);
@@ -1050,7 +1083,7 @@ public class TinkoffInvestGui extends JFrame {
         filtersPanel.add(riskLabel);
         filtersPanel.add(riskCheckbox);
 
-        JLabel infoLabel = new JLabel("<html><center>ℹ️ Анализ займёт несколько минут<br/>для загрузки свечей</center></html>");
+        JLabel infoLabel = new JLabel("ℹ️ Анализ займёт несколько минут для загрузки свечей");
         infoLabel.setFont(new Font("Arial", Font.ITALIC, 11));
         infoLabel.setHorizontalAlignment(SwingConstants.CENTER);
         filtersPanel.add(new JLabel());
@@ -1075,6 +1108,7 @@ public class TinkoffInvestGui extends JFrame {
 
                 dialog.dispose();
                 runBondsAnalysis(criteria);
+
             } catch (Exception ex) {
                 log.error("Ошибка параметров анализа", ex);
                 JOptionPane.showMessageDialog(dialog, "Ошибка в параметрах: " + ex.getMessage(),
@@ -1086,14 +1120,11 @@ public class TinkoffInvestGui extends JFrame {
 
         buttonsPanel.add(startButton);
         buttonsPanel.add(cancelButton);
-        dialog.add(buttonsPanel, BorderLayout.SOUTH);
 
+        dialog.add(buttonsPanel, BorderLayout.SOUTH);
         dialog.setVisible(true);
     }
 
-    /**
-     * Выполняет анализ облигаций в фоновом потоке (НОВЫЙ МЕТОД)
-     */
     private void runBondsAnalysis(BondsAnalysisService.BondsFilterCriteria criteria) {
         log.info("Запуск анализа облигаций с критериями: {}", criteria);
 
@@ -1144,7 +1175,6 @@ public class TinkoffInvestGui extends JFrame {
                             ConnectorConfig.API_URL,
                             ConnectorConfig.API_PORT
                     );
-
                     return analysisService.analyzeBonds(filtered, candlesService);
 
                 } catch (Exception e) {
@@ -1175,13 +1205,9 @@ public class TinkoffInvestGui extends JFrame {
                 }
             }
         };
-
         worker.execute();
     }
 
-    /**
-     * Показывает результаты анализа в отдельном окне (НОВЫЙ МЕТОД)
-     */
     private void showAnalysisResults(List<BondsAnalysisService.BondAnalysisResult> results) {
         log.info("Показываем {} результатов анализа", results.size());
 
@@ -1219,14 +1245,13 @@ public class TinkoffInvestGui extends JFrame {
         JTable table = new JTable(new DefaultTableModel(data, columns));
         table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-
         JScrollPane scrollPane = new JScrollPane(table);
         dialog.add(scrollPane, BorderLayout.CENTER);
 
         // Информационная панель
         JPanel infoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JLabel infoLabel = new JLabel(String.format(
-                "📊 Найдено облигаций: %d  |  Отсортировано по убыванию оценки (⭐)",
+                "📊 Найдено облигаций: %d | Отсортировано по убыванию оценки (⭐)",
                 results.size()
         ));
         infoLabel.setFont(new Font("Arial", Font.BOLD, 13));
@@ -1243,12 +1268,8 @@ public class TinkoffInvestGui extends JFrame {
         dialog.setVisible(true);
     }
 
-    /**
-     * Показывает диалог для экспорта исторических свечей
-     */
     private void showCandlesExportDialog() {
         log.info("Открытие диалога экспорта исторических свечей");
-
         JDialog dialog = new JDialog(this, "📈 Экспорт исторических свечей", true);
         dialog.setLayout(new BorderLayout(10, 10));
         dialog.setSize(500, 350);
@@ -1309,9 +1330,9 @@ public class TinkoffInvestGui extends JFrame {
 
         // Панель кнопок
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 10));
-
         JButton exportButton = new JButton("📥 Экспортировать");
         exportButton.setFont(new Font("Arial", Font.BOLD, 12));
+
         exportButton.addActionListener(e -> {
             try {
                 String figi = figiField.getText().trim();
@@ -1381,7 +1402,6 @@ public class TinkoffInvestGui extends JFrame {
         dialog.add(inputPanel, BorderLayout.CENTER);
         dialog.add(infoPanel, BorderLayout.NORTH);
         dialog.add(buttonPanel, BorderLayout.SOUTH);
-
         dialog.setVisible(true);
     }
 
@@ -1441,21 +1461,27 @@ public class TinkoffInvestGui extends JFrame {
     }
 
     // ============================================================
-    // CLEANUP
+    // CLEANUP И SHUTDOWN
     // ============================================================
 
-    @Override
-    public void addWindowListener(java.awt.event.WindowListener l) {
-        super.addWindowListener(new java.awt.event.WindowAdapter() {
-            @Override
-            public void windowClosing(java.awt.event.WindowEvent e) {
-                log.info("Закрытие приложения");
-                stopPortfolioAutoUpdate();
-                System.exit(0);
-            }
-        });
-        super.addWindowListener(l);
+    /**
+     * Корректное закрытие приложения с освобождением ресурсов
+     */
+    private void shutdown() {
+        log.info("🛑 Завершение работы приложения");
+
+        // Останавливаем планировщик автоматических заявок
+        if (ordersScheduler != null) {
+            ordersScheduler.stop();
+        }
+
+        // Останавливаем автообновление портфеля
+        stopPortfolioAutoUpdate();
+
+
+        System.exit(0);
     }
+
 
     private void stopPortfolioAutoUpdate() {
         if (portfolioUpdateExecutor != null && !portfolioUpdateExecutor.isShutdown()) {

@@ -202,6 +202,7 @@ public class OrdersService {
 
     /**
      * ✅ ЛОГИРОВАНИЕ ПОЛНОГО JSON ЗАПРОСА PostOrderRequest
+     * Компактный формат аналогичный CandlesApiService
      */
     private void logPostOrderRequestJson(PostOrderRequest request, String orderType) {
         try {
@@ -210,21 +211,14 @@ public class OrdersService {
                     .includingDefaultValueFields()
                     .print(request);
 
-            log.info("\n╔════════════════════════════════════════════════════════════");
-            log.info("║ POST ORDER REQUEST ({}) - ПОЛНЫЙ JSON", orderType);
-            log.info("╠════════════════════════════════════════════════════════════");
-
-            // Выводим JSON построчно для читаемости
-            for (String line : json.split("\n")) {
-                log.info("║ {}", line);
-            }
-
-            log.info("╚════════════════════════════════════════════════════════════");
+            // Компактный многострочный формат
+            log.info("📤 Полный JSON запрос на {} заявку:\n{}", orderType, json);
 
         } catch (Exception e) {
             log.error("Ошибка форматирования JSON для PostOrderRequest", e);
         }
     }
+
 
     /**
      * ✅ Создаёт JSON представление заявок для предпросмотра
