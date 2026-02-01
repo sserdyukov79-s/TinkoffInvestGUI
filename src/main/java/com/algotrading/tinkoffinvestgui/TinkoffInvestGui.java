@@ -17,6 +17,7 @@ import com.algotrading.tinkoffinvestgui.service.OrdersBusinessService;
 import com.algotrading.tinkoffinvestgui.service.OrdersScheduler;
 import com.algotrading.tinkoffinvestgui.service.CandlesExportService;
 import com.algotrading.tinkoffinvestgui.service.BondsAnalysisService;
+import com.algotrading.tinkoffinvestgui.service.BondStrategyCalculator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import ru.tinkoff.piapi.contract.v1.*;
@@ -1209,49 +1210,79 @@ public class TinkoffInvestGui extends JFrame {
     }
 
     private void showAnalysisResults(List<BondsAnalysisService.BondAnalysisResult> results) {
-        log.info("Показываем {} результатов анализа", results.size());
+        log.info("Показываем {} результатов анализа с рекомендациями цен", results.size());
 
-        JDialog dialog = new JDialog(this, "📊 Результаты анализа облигаций", false);
-        dialog.setSize(1400, 700);
+        JDialog dialog = new JDialog(this, "📊 Результаты анализа облигаций с рекомендациями", false);
+        dialog.setSize(1800, 800);  // Увеличена ширина для новых колонок
         dialog.setLocationRelativeTo(this);
         dialog.setLayout(new BorderLayout(10, 10));
 
-        // Таблица результатов
+        // ✅ ОБНОВЛЁННАЯ ТАБЛИЦА С НОВЫМИ КОЛОНКАМИ
         String[] columns = {
                 "Тикер", "Название", "FIGI", "Валюта", "Погашение",
-                "Dlong", "Риск", "Волатильность", "Текущ. цена", "Ср. цена",
-                "Изм. цены %", "Диапазон %", "Тренд", "⭐ Оценка"
+                "Dlong", "Риск", "σ %", "Текущ. цена", "Ср. цена",
+                "Изм. %", "Тренд",
+                "💰 Цена покупки", "💰 Цена продажи", "Скидка %", "Профит %",
+                "⭐ Оценка"
         };
 
-        Object[][] data = new Object[results.size()][14];
+        Object[][] data = new Object[results.size()][columns.length];
+
         for (int i = 0; i < results.size(); i++) {
             BondsAnalysisService.BondAnalysisResult r = results.get(i);
-            data[i][0] = r.getTicker();
-            data[i][1] = r.getName();
-            data[i][2] = r.getFigi();
-            data[i][3] = r.getNominalCurrency();
-            data[i][4] = r.getMaturityDate() != null ? r.getMaturityDate().toString() : "-";
-            data[i][5] = String.format("%.2f", r.getDlong());
-            data[i][6] = r.getRiskLevel();
-            data[i][7] = String.format("%.4f", r.getVolatility());
-            data[i][8] = String.format("%.2f", r.getCurrentPrice());
-            data[i][9] = String.format("%.2f", r.getAvgPrice());
-            data[i][10] = String.format("%.2f%%", r.getPriceChangePercent());
-            data[i][11] = String.format("%.2f%%", r.getPriceRangePercent());
-            data[i][12] = String.format("%.4f", r.getTrend());
-            data[i][13] = String.format("%.2f", r.getScore());
+
+            // ✅ Рассчитываем рекомендованные цены
+            BondStrategyCalculator.StrategyRecommendation strategy =
+                    BondStrategyCalculator.calculatePrices(r);
+
+            int col = 0;
+            data[i][col++] = r.getTicker();
+            data[i][col++] = r.getName();
+            data[i][col++] = r.getFigi();
+            data[i][col++] = r.getNominalCurrency();
+            data[i][col++] = r.getMaturityDate() != null ? r.getMaturityDate().toString() : "-";
+            data[i][col++] = String.format("%.2f", r.getDlong());
+            data[i][col++] = r.getRiskLevel();
+            data[i][col++] = String.format("%.4f", r.getVolatility() / r.getAvgPrice() * 100);
+            data[i][col++] = String.format("%.2f", r.getCurrentPrice());
+            data[i][col++] = String.format("%.2f", r.getAvgPrice());
+            data[i][col++] = String.format("%.2f%%", r.getPriceChangePercent());
+            data[i][col++] = String.format("%.4f", r.getTrend());
+
+            // ✅ НОВЫЕ КОЛОНКИ: Рекомендованные цены
+            data[i][col++] = strategy.getBuyPrice();
+            data[i][col++] = strategy.getSellPrice();
+            data[i][col++] = String.format("%.2f%%", strategy.getDiscountPercent());
+            data[i][col++] = String.format("%.2f%%", strategy.getProfitPercent());
+
+            data[i][col++] = String.format("%.2f", r.getScore());
         }
 
         JTable table = new JTable(new DefaultTableModel(data, columns));
         table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+
+        // ✅ Слушатель для показа подробной рекомендации при клике на строку
+        table.getSelectionModel().addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
+                int selectedRow = table.getSelectedRow();
+                if (selectedRow >= 0) {
+                    BondsAnalysisService.BondAnalysisResult analysis = results.get(selectedRow);
+                    BondStrategyCalculator.StrategyRecommendation strategy =
+                            BondStrategyCalculator.calculatePrices(analysis);
+
+                    showStrategyDetails(analysis, strategy);
+                }
+            }
+        });
+
         JScrollPane scrollPane = new JScrollPane(table);
         dialog.add(scrollPane, BorderLayout.CENTER);
 
         // Информационная панель
         JPanel infoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JLabel infoLabel = new JLabel(String.format(
-                "📊 Найдено облигаций: %d | Отсортировано по убыванию оценки (⭐)",
+                "📊 Облигаций с рекомендациями: %d | 💡 Кликните на строку для подробной рекомендации",
                 results.size()
         ));
         infoLabel.setFont(new Font("Arial", Font.BOLD, 13));
@@ -1459,6 +1490,98 @@ public class TinkoffInvestGui extends JFrame {
         };
         worker.execute();
     }
+
+
+    /**
+     * Показывает подробную рекомендацию для выбранной облигации
+     */
+    private void showStrategyDetails(
+            BondsAnalysisService.BondAnalysisResult analysis,
+            BondStrategyCalculator.StrategyRecommendation strategy) {
+
+        JDialog detailsDialog = new JDialog(this, "💡 Подробная рекомендация", true);
+        detailsDialog.setSize(600, 550);
+        detailsDialog.setLocationRelativeTo(this);
+        detailsDialog.setLayout(new BorderLayout(15, 15));
+
+        // Заголовок
+        JLabel titleLabel = new JLabel(
+                String.format("📊 %s (%s)", analysis.getTicker(), analysis.getName()),
+                SwingConstants.CENTER
+        );
+        titleLabel.setFont(new Font("Arial", Font.BOLD, 16));
+        detailsDialog.add(titleLabel, BorderLayout.NORTH);
+
+        // Таблица параметров
+        JPanel paramsPanel = new JPanel(new GridLayout(14, 2, 10, 10));
+        paramsPanel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
+
+        addParamRow(paramsPanel, "📈 Текущая цена:", String.format("%.2f₽", analysis.getCurrentPrice()));
+        addParamRow(paramsPanel, "📊 Волатильность (σ):", String.format("%.4f₽ (%.2f%%)",
+                analysis.getVolatility(), strategy.getVolatilityPercent()));
+        addParamRow(paramsPanel, "➡️ Тренд:", String.format("%.4f (%.2f%%/день)",
+                analysis.getTrend(), analysis.getTrend() * 100));
+        addParamRow(paramsPanel, "───────────────", "───────────────");
+        addParamRow(paramsPanel, "💰 Рекомендуемая цена покупки:", String.format("%.2f₽",
+                strategy.getBuyPrice().doubleValue()));
+        addParamRow(paramsPanel, "🎯 Скидка от текущей:", String.format("%.2f%% скидка",
+                strategy.getDiscountPercent()));
+        addParamRow(paramsPanel, "───────────────", "───────────────");
+        addParamRow(paramsPanel, "🎁 Цена продажи (при исполнении):", String.format("%.2f₽",
+                strategy.getSellPrice().doubleValue()));
+
+        // ✅ НОВОЕ: Комиссии брокера
+        addParamRow(paramsPanel, "💳 Комиссия при покупке (0.04%):", String.format("%.2f₽",
+                strategy.getBuyCommission()));
+        addParamRow(paramsPanel, "💳 Комиссия при продаже (0.04%):", String.format("%.2f₽",
+                strategy.getSellCommission()));
+        addParamRow(paramsPanel, "💸 Всего комиссий:", String.format("%.2f₽",
+                strategy.getTotalCommissions()));
+
+        addParamRow(paramsPanel, "───────────────", "───────────────");
+        addParamRow(paramsPanel, "💵 ЧИСТАЯ прибыль (после комиссий):", String.format("%.2f₽ (%.2f%%)",
+                strategy.getNetProfit(), strategy.getProfitPercent()));
+        addParamRow(paramsPanel, "🔒 В обеспечение (Dlong):", String.format("%.2f", analysis.getDlong()));
+        addParamRow(paramsPanel, "⭐ Общая оценка:", String.format("%.0f баллов", analysis.getScore()));
+
+        JScrollPane scrollPane = new JScrollPane(paramsPanel);
+        detailsDialog.add(scrollPane, BorderLayout.CENTER);
+
+        // Рекомендация
+        JTextArea recommendationArea = new JTextArea();
+        recommendationArea.setText(strategy.getRecommendation());
+        recommendationArea.setEditable(false);
+        recommendationArea.setLineWrap(true);
+        recommendationArea.setWrapStyleWord(true);
+        recommendationArea.setFont(new Font("Arial", Font.PLAIN, 12));
+        recommendationArea.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        recommendationArea.setBackground(new Color(240, 248, 255));
+
+        JScrollPane recScrollPane = new JScrollPane(recommendationArea);
+        recScrollPane.setBorder(BorderFactory.createTitledBorder("📋 Анализ"));
+        recScrollPane.setPreferredSize(new Dimension(560, 150));
+        detailsDialog.add(recScrollPane, BorderLayout.SOUTH);
+
+        detailsDialog.setVisible(true);
+    }
+
+    /**
+     * Вспомогательный метод для добавления строки параметра в панель
+     */
+    private void addParamRow(JPanel panel, String label, String value) {
+        JLabel labelComp = new JLabel(label);
+        labelComp.setFont(new Font("Arial", Font.BOLD, 12));
+
+        JLabel valueComp = new JLabel(value);
+        valueComp.setFont(new Font("Arial", Font.PLAIN, 12));
+        if (value.isEmpty() || value.startsWith("──")) {
+            valueComp.setForeground(Color.GRAY);
+        }
+
+        panel.add(labelComp);
+        panel.add(valueComp);
+    }
+
 
     // ============================================================
     // CLEANUP И SHUTDOWN
