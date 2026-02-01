@@ -11,8 +11,10 @@ import java.util.stream.Collectors;
 
 /**
  * Сервис для анализа облигаций с расчётом метрик на основе исторических свечей
+ * ✅ С расчётом среднедневного объёма торгов и фильтром по ликвидности
  */
 public class BondsAnalysisService {
+
     private static final Logger log = LoggerFactory.getLogger(BondsAnalysisService.class);
 
     private static final int DEFAULT_MIN_DAYS_TO_MATURITY = 3;
@@ -58,6 +60,7 @@ public class BondsAnalysisService {
                     if (bond.hasMaturityDate()) {
                         long maturitySeconds = bond.getMaturityDate().getSeconds();
                         LocalDate maturityDate = LocalDate.ofEpochDay(maturitySeconds / 86400);
+
                         if (maturityDate.isBefore(minMaturityDate) || maturityDate.isAfter(maxMaturityDate)) {
                             stats[3]++;
                             return false;
@@ -73,6 +76,7 @@ public class BondsAnalysisService {
                             stats[4]++;
                             return false;
                         }
+
                         // Правильный расчёт dlong с учётом дробной части
                         double dlongValue = bond.getDlong().getUnits() + bond.getDlong().getNano() / 1e9;
                         if (dlongValue <= 0) {
@@ -115,6 +119,7 @@ public class BondsAnalysisService {
                 if (hasMaturity) {
                     maturity = LocalDate.ofEpochDay(b.getMaturityDate().getSeconds() / 86400);
                 }
+
                 boolean hasDlong = b.hasDlong();
                 double dlong = hasDlong ? (b.getDlong().getUnits() + b.getDlong().getNano() / 1e9) : 0;
 
@@ -129,12 +134,12 @@ public class BondsAnalysisService {
 
     /**
      * Анализирует облигации: загружает свечи и рассчитывает метрики
+     * ✅ С фильтрацией по минимальному объёму торгов
      */
-    public List<BondAnalysisResult> analyzeBonds(List<Bond> bonds, CandlesApiService candlesService) {
+    public List<BondAnalysisResult> analyzeBonds(List<Bond> bonds, CandlesApiService candlesService, BondsFilterCriteria criteria) {
         log.info("Начало анализа {} облигаций", bonds.size());
 
         List<BondAnalysisResult> results = new ArrayList<>();
-
         LocalDate to = LocalDate.now();
         LocalDate from = to.minusMonths(CANDLES_PERIOD_MONTHS);
 
@@ -169,16 +174,28 @@ public class BondsAnalysisService {
             }
         }
 
-        log.info("Анализ завершён. Результатов: {}", results.size());
+        log.info("Анализ завершён. Результатов до фильтрации по объёму: {}", results.size());
+
+        // ✅ ФИЛЬТРАЦИЯ ПО МИНИМАЛЬНОМУ ОБЪЁМУ (если задан)
+        if (criteria.getMinAvgDailyVolume() > 0) {
+            int beforeFilter = results.size();
+            results = results.stream()
+                    .filter(r -> r.getAvgDailyVolume() >= criteria.getMinAvgDailyVolume())
+                    .collect(Collectors.toList());
+            log.info("📊 Фильтр по объёму торгов (мин. {} лот/день): {} → {} результатов",
+                    criteria.getMinAvgDailyVolume(), beforeFilter, results.size());
+        }
 
         // Сортируем по убыванию оценки (score)
         results.sort(Comparator.comparingDouble(BondAnalysisResult::getScore).reversed());
 
+        log.info("✅ Итого результатов после всех фильтров: {}", results.size());
         return results;
     }
 
     /**
      * Анализирует свечи одной облигации и рассчитывает метрики
+     * ✅ С расчётом среднедневного объёма торгов
      */
     private BondAnalysisResult analyzeCandles(Bond bond, List<HistoricCandle> candles) {
         BondAnalysisResult result = new BondAnalysisResult();
@@ -209,6 +226,13 @@ public class BondsAnalysisService {
         // 1. Волатильность (стандартное отклонение)
         double volatility = calculateVolatility(closes);
         result.setVolatility(volatility);
+
+        // ✅ 1a. Среднедневной объём торгов (в лотах)
+        double avgDailyVolume = candles.stream()
+                .mapToLong(HistoricCandle::getVolume)  // Volume уже в лотах
+                .average()
+                .orElse(0);
+        result.setAvgDailyVolume(avgDailyVolume);
 
         // 2. Средняя цена за период
         double avgPrice = Arrays.stream(closes).average().orElse(0);
@@ -312,6 +336,7 @@ public class BondsAnalysisService {
 
     /**
      * Критерии фильтрации облигаций
+     * ✅ С поддержкой фильтра по минимальному объёму торгов
      */
     public static class BondsFilterCriteria {
         private String nominalCurrency = "RUB";
@@ -320,8 +345,10 @@ public class BondsAnalysisService {
         private int maxMonthsToMaturity = DEFAULT_MAX_MONTHS_TO_MATURITY;
         private boolean requireDlong = true;
         private boolean excludeHighRisk = true;
+        private double minAvgDailyVolume = 0;  // ✅ НОВОЕ ПОЛЕ: Минимальный среднедневной объём торгов (лотов/день)
 
         // Getters and Setters
+
         public String getNominalCurrency() {
             return nominalCurrency;
         }
@@ -370,16 +397,26 @@ public class BondsAnalysisService {
             this.excludeHighRisk = excludeHighRisk;
         }
 
+        // ✅ НОВЫЙ GETTER/SETTER
+        public double getMinAvgDailyVolume() {
+            return minAvgDailyVolume;
+        }
+
+        public void setMinAvgDailyVolume(double minAvgDailyVolume) {
+            this.minAvgDailyVolume = minAvgDailyVolume;
+        }
+
         @Override
         public String toString() {
-            return String.format("Currency=%s, NoAmort=%b, Days=%d-%d months, Dlong=%b, ExcludeHighRisk=%b",
+            return String.format("Currency=%s, NoAmort=%b, Days=%d-%d months, Dlong=%b, ExcludeHighRisk=%b, MinVolume=%.0f",
                     nominalCurrency, withoutAmortization, minDaysToMaturity, maxMonthsToMaturity,
-                    requireDlong, excludeHighRisk);
+                    requireDlong, excludeHighRisk, minAvgDailyVolume);
         }
     }
 
     /**
      * Результат анализа одной облигации
+     * ✅ С полем среднедневного объёма торгов
      */
     public static class BondAnalysisResult {
         private String figi;
@@ -392,6 +429,7 @@ public class BondsAnalysisService {
 
         // Метрики на основе свечей
         private double volatility;
+        private double avgDailyVolume;  // ✅ НОВОЕ ПОЛЕ: Среднедневной объём торгов (лотов)
         private double avgPrice;
         private double currentPrice;
         private double priceChangePercent;
@@ -402,6 +440,7 @@ public class BondsAnalysisService {
         private double score;
 
         // Getters and Setters
+
         public String getFigi() {
             return figi;
         }
@@ -464,6 +503,15 @@ public class BondsAnalysisService {
 
         public void setVolatility(double volatility) {
             this.volatility = volatility;
+        }
+
+        // ✅ НОВЫЙ GETTER/SETTER
+        public double getAvgDailyVolume() {
+            return avgDailyVolume;
+        }
+
+        public void setAvgDailyVolume(double avgDailyVolume) {
+            this.avgDailyVolume = avgDailyVolume;
         }
 
         public double getAvgPrice() {

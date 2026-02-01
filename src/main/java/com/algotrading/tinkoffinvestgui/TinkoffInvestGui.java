@@ -7,7 +7,7 @@ import com.algotrading.tinkoffinvestgui.api.AccountsApiService;
 import com.algotrading.tinkoffinvestgui.api.CandlesApiService;
 import com.algotrading.tinkoffinvestgui.config.AppConstants;
 import com.algotrading.tinkoffinvestgui.config.ConnectorConfig;
-import com.algotrading.tinkoffinvestgui.config.DatabaseConnectionPool;
+// import com.algotrading.tinkoffinvestgui.config.DatabaseConnectionPool;
 import com.algotrading.tinkoffinvestgui.entity.Instrument;
 import com.algotrading.tinkoffinvestgui.repository.BondsRepository;
 import com.algotrading.tinkoffinvestgui.repository.InstrumentsRepository;
@@ -17,6 +17,7 @@ import com.algotrading.tinkoffinvestgui.service.OrdersBusinessService;
 import com.algotrading.tinkoffinvestgui.service.OrdersScheduler;
 import com.algotrading.tinkoffinvestgui.service.CandlesExportService;
 import com.algotrading.tinkoffinvestgui.service.BondsAnalysisService;
+import com.algotrading.tinkoffinvestgui.service.BondStrategyBacktestService;
 import com.algotrading.tinkoffinvestgui.service.BondStrategyCalculator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -996,6 +997,28 @@ public class TinkoffInvestGui extends JFrame {
         analysisSection.add(Box.createVerticalStrut(10));
         analysisSection.add(analysisButton);
 
+        // 2.5. Секция бэктестинга
+        JPanel backtestSection = new JPanel();
+        backtestSection.setLayout(new BoxLayout(backtestSection, BoxLayout.Y_AXIS));
+        backtestSection.setBorder(BorderFactory.createTitledBorder("🧪 Бэктестинг стратегии"));
+        backtestSection.setMaximumSize(new Dimension(Integer.MAX_VALUE, 180));
+
+        JLabel backtestLabel = new JLabel("Проверка стратегии на исторических данных.");
+        backtestLabel.setFont(new Font("Arial", Font.PLAIN, 12));
+        backtestLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JButton backtestButton = new JButton("🧪 Запустить бэктест");
+        backtestButton.setFont(new Font("Arial", Font.BOLD, 14));
+        backtestButton.setBackground(new Color(155, 89, 182));
+        backtestButton.setForeground(Color.WHITE);
+        backtestButton.setFocusPainted(false);
+        backtestButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+        backtestButton.addActionListener(e -> showBacktestDialog());
+
+        backtestSection.add(backtestLabel);
+        backtestSection.add(Box.createVerticalStrut(10));
+        backtestSection.add(backtestButton);
+
         // Секция 3: Экспорт исторических свечей
         JPanel candlesSection = new JPanel();
         candlesSection.setLayout(new BoxLayout(candlesSection, BoxLayout.Y_AXIS));
@@ -1022,8 +1045,9 @@ public class TinkoffInvestGui extends JFrame {
         centerPanel.add(Box.createVerticalStrut(20));
         centerPanel.add(analysisSection);
         centerPanel.add(Box.createVerticalStrut(20));
+        centerPanel.add(backtestSection);  // ← НОВОЕ
+        centerPanel.add(Box.createVerticalStrut(20));
         centerPanel.add(candlesSection);
-        centerPanel.add(Box.createVerticalGlue());
 
         // Информационная панель внизу
         String downloadsPath = System.getProperty("user.home") + "\\Downloads";
@@ -1047,7 +1071,7 @@ public class TinkoffInvestGui extends JFrame {
         dialog.setLayout(new BorderLayout(10, 10));
 
         // Панель с параметрами фильтрации
-        JPanel filtersPanel = new JPanel(new GridLayout(8, 2, 10, 10));
+        JPanel filtersPanel = new JPanel(new GridLayout(9, 2, 10, 10));
         filtersPanel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
 
         JLabel currencyLabel = new JLabel("Валюта номинала:");
@@ -1071,6 +1095,11 @@ public class TinkoffInvestGui extends JFrame {
         JCheckBox riskCheckbox = new JCheckBox();
         riskCheckbox.setSelected(true);
 
+        // ✅ ОБЪЯВЛЕНИЕ переменных для фильтра по объёму
+        JLabel volumeLabel = new JLabel("Мин. объём торгов (лот/день):");
+        JTextField volumeField = new JTextField("500");
+        volumeField.setToolTipText("0 = без фильтра, рекомендуется 500+");
+
         filtersPanel.add(currencyLabel);
         filtersPanel.add(currencyCombo);
         filtersPanel.add(amortLabel);
@@ -1083,6 +1112,8 @@ public class TinkoffInvestGui extends JFrame {
         filtersPanel.add(dlongCheckbox);
         filtersPanel.add(riskLabel);
         filtersPanel.add(riskCheckbox);
+        filtersPanel.add(volumeLabel);
+        filtersPanel.add(volumeField);
 
         JLabel infoLabel = new JLabel("ℹ️ Анализ займёт несколько минут для загрузки свечей");
         infoLabel.setFont(new Font("Arial", Font.ITALIC, 11));
@@ -1106,6 +1137,9 @@ public class TinkoffInvestGui extends JFrame {
                 criteria.setMaxMonthsToMaturity(Integer.parseInt(maxMonthsField.getText()));
                 criteria.setRequireDlong(dlongCheckbox.isSelected());
                 criteria.setExcludeHighRisk(riskCheckbox.isSelected());
+                // ✅ Установить фильтр по объёму
+                double minVolume = Double.parseDouble(volumeField.getText());
+                criteria.setMinAvgDailyVolume(minVolume);
 
                 dialog.dispose();
                 runBondsAnalysis(criteria);
@@ -1176,7 +1210,7 @@ public class TinkoffInvestGui extends JFrame {
                             ConnectorConfig.API_URL,
                             ConnectorConfig.API_PORT
                     );
-                    return analysisService.analyzeBonds(filtered, candlesService);
+                    return analysisService.analyzeBonds(filtered, candlesService, criteria);
 
                 } catch (Exception e) {
                     log.error("Ошибка анализа облигаций", e);
@@ -1217,64 +1251,106 @@ public class TinkoffInvestGui extends JFrame {
         dialog.setLocationRelativeTo(this);
         dialog.setLayout(new BorderLayout(10, 10));
 
-        // ✅ ОБНОВЛЁННАЯ ТАБЛИЦА С НОВЫМИ КОЛОНКАМИ
         String[] columns = {
-                "Тикер", "Название", "FIGI", "Валюта", "Погашение",
-                "Dlong", "Риск", "σ %", "Текущ. цена", "Ср. цена",
-                "Изм. %", "Тренд",
-                "💰 Цена покупки", "💰 Цена продажи", "Скидка %", "Профит %",
-                "⭐ Оценка"
+                "Тикер",                    // 0
+                "Название",                 // 1
+                "FIGI",                     // 2
+                "Валюта",                   // 3
+                "Погашение",                // 4
+                "Dlong",                    // 5
+                "Риск",                     // 6
+                "σ %",                      // 7
+                "💧 Объём (лот/день)",      // 8  ✅ НОВАЯ КОЛОНКА
+                "Текущ. цена",              // 9
+                "Ср. цена",                 // 10
+                "Изм. %",                   // 11
+                "Тренд",                    // 12
+                "💰 Цена покупки",          // 13
+                "💰 Цена продажи",          // 14
+                "Скидка %",                 // 15
+                "💵 Профит БЕЗ ком. (₽)",   // 16  ✅ НОВАЯ КОЛОНКА
+                "💵 Профит С ком. (₽)",     // 17
+                "💸 Комиссии (₽)",          // 18
+                "💸 Комиссии (%)",          // 19  ✅ НОВАЯ КОЛОНКА
+                "⭐ Оценка"                 // 20
         };
+
+        ParametersRepository paramsRepo = new ParametersRepository();
+        double brokerCommission = paramsRepo.getBrokerCommissionDecimal();
+        log.info("📊 Используется комиссия брокера: {:.4f}%", brokerCommission * 100);
 
         Object[][] data = new Object[results.size()][columns.length];
 
+        // ✅ ОБНОВЛЁННОЕ ЗАПОЛНЕНИЕ ДАННЫХ С НОВЫМИ ПОЛЯМИ
         for (int i = 0; i < results.size(); i++) {
             BondsAnalysisService.BondAnalysisResult r = results.get(i);
 
-            // ✅ Рассчитываем рекомендованные цены
+            // ✅ Используем НОВЫЙ метод calculatePrices с StrategyParameters
+            ParametersRepository.StrategyParameters params = paramsRepo.getStrategyParameters();
             BondStrategyCalculator.StrategyRecommendation strategy =
-                    BondStrategyCalculator.calculatePrices(r);
+                    BondStrategyCalculator.calculatePrices(r, params);
 
             int col = 0;
-            data[i][col++] = r.getTicker();
-            data[i][col++] = r.getName();
-            data[i][col++] = r.getFigi();
-            data[i][col++] = r.getNominalCurrency();
-            data[i][col++] = r.getMaturityDate() != null ? r.getMaturityDate().toString() : "-";
-            data[i][col++] = String.format("%.2f", r.getDlong());
-            data[i][col++] = r.getRiskLevel();
-            data[i][col++] = String.format("%.4f", r.getVolatility() / r.getAvgPrice() * 100);
-            data[i][col++] = String.format("%.2f", r.getCurrentPrice());
-            data[i][col++] = String.format("%.2f", r.getAvgPrice());
-            data[i][col++] = String.format("%.2f%%", r.getPriceChangePercent());
-            data[i][col++] = String.format("%.4f", r.getTrend());
+            data[i][col++] = r.getTicker();                                                    // 0
+            data[i][col++] = r.getName();                                                      // 1
+            data[i][col++] = r.getFigi();                                                      // 2
+            data[i][col++] = r.getNominalCurrency();                                           // 3
+            data[i][col++] = r.getMaturityDate() != null ? r.getMaturityDate().toString() : "-"; // 4
+            data[i][col++] = String.format("%.2f", r.getDlong());                             // 5
+            data[i][col++] = r.getRiskLevel();                                                // 6
+            data[i][col++] = String.format("%.4f", r.getVolatility() / r.getAvgPrice() * 100); // 7
 
-            // ✅ НОВЫЕ КОЛОНКИ: Рекомендованные цены
-            data[i][col++] = strategy.getBuyPrice();
-            data[i][col++] = strategy.getSellPrice();
-            data[i][col++] = String.format("%.2f%%", strategy.getDiscountPercent());
-            data[i][col++] = String.format("%.2f%%", strategy.getProfitPercent());
+            // ✅ НОВАЯ КОЛОНКА: Среднедневной объём торгов
+            data[i][col++] = String.format("%.0f", r.getAvgDailyVolume());                    // 8
 
-            data[i][col++] = String.format("%.2f", r.getScore());
+            data[i][col++] = String.format("%.2f", r.getCurrentPrice());                      // 9
+            data[i][col++] = String.format("%.2f", r.getAvgPrice());                          // 10
+            data[i][col++] = String.format("%.2f%%", r.getPriceChangePercent());              // 11
+            data[i][col++] = String.format("%.4f", r.getTrend());                             // 12
+            data[i][col++] = strategy.getBuyPrice();                                          // 13
+            data[i][col++] = strategy.getSellPrice();                                         // 14
+            data[i][col++] = String.format("%.2f%%", strategy.getDiscountPercent());          // 15
+
+            // ✅ НОВАЯ КОЛОНКА: Прибыль БЕЗ комиссий
+            data[i][col++] = String.format("%.2f", strategy.getProfitWithoutCommission());    // 16
+
+            data[i][col++] = String.format("%.2f", strategy.getNetProfit());                  // 17
+            data[i][col++] = String.format("%.2f", strategy.getTotalCommissions());           // 18
+
+            // ✅ НОВАЯ КОЛОНКА: Процент комиссий от цены покупки
+            double commissionPercent = (strategy.getTotalCommissions() /
+                    strategy.getBuyPrice().doubleValue()) * 100;
+            data[i][col++] = String.format("%.3f%%", commissionPercent);                      // 19
+
+            data[i][col++] = String.format("%.2f", r.getScore());                             // 20
         }
+
+
 
         JTable table = new JTable(new DefaultTableModel(data, columns));
         table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
 
-        // ✅ Слушатель для показа подробной рекомендации при клике на строку
+
+        // ✅ Listener для показа подробной рекомендации с новым методом
         table.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
                 int selectedRow = table.getSelectedRow();
                 if (selectedRow >= 0) {
                     BondsAnalysisService.BondAnalysisResult analysis = results.get(selectedRow);
+
+                    // ✅ Используем НОВЫЙ метод calculatePrices с StrategyParameters
+                    ParametersRepository.StrategyParameters params = paramsRepo.getStrategyParameters();
                     BondStrategyCalculator.StrategyRecommendation strategy =
-                            BondStrategyCalculator.calculatePrices(analysis);
+                            BondStrategyCalculator.calculatePrices(analysis, params);
 
                     showStrategyDetails(analysis, strategy);
                 }
             }
         });
+
+
+        addTableCopyMenu(table);
 
         JScrollPane scrollPane = new JScrollPane(table);
         dialog.add(scrollPane, BorderLayout.CENTER);
@@ -1580,6 +1656,467 @@ public class TinkoffInvestGui extends JFrame {
 
         panel.add(labelComp);
         panel.add(valueComp);
+    }
+
+
+    /**
+     * Диалог запуска бэктестинга стратегии
+     */
+    private void showBacktestDialog() {
+        log.info("Открытие диалога бэктестинга стратегии");
+
+        JDialog dialog = new JDialog(this, "🧪 Бэктестинг стратегии \"ловец дна\"", true);
+        dialog.setSize(500, 550);  // ← НОВАЯ ВЫСОТА
+        dialog.setLocationRelativeTo(this);
+        dialog.setLayout(new BorderLayout(15, 15));
+
+        // Параметры бэктеста + фильтры
+        JPanel paramsPanel = new JPanel(new GridLayout(8, 2, 10, 10));  // ← 8 СТРОК
+        paramsPanel.setBorder(BorderFactory.createEmptyBorder(20, 20, 10, 20));
+
+        // Даты
+        JLabel startDateLabel = new JLabel("Начальная дата:");
+        JTextField startDateField = new JTextField(LocalDate.now().minusYears(1).toString());
+
+        JLabel endDateLabel = new JLabel("Конечная дата:");
+        JTextField endDateField = new JTextField(LocalDate.now().toString());
+
+        // Фильтры (как в анализе облигаций)
+        JLabel currencyLabel = new JLabel("Валюта:");
+        JComboBox<String> currencyCombo = new JComboBox<>(new String[]{"RUB", "USD", "EUR", "CNY"});
+        currencyCombo.setSelectedItem("RUB");
+
+        JLabel amortLabel = new JLabel("Без амортизации:");
+        JCheckBox amortCheckbox = new JCheckBox();
+        amortCheckbox.setSelected(true);
+
+        JLabel minDaysLabel = new JLabel("Мин. дней до погашения:");
+        JTextField minDaysField = new JTextField("3");
+
+        JLabel maxMonthsLabel = new JLabel("Макс. месяцев до погашения:");
+        JTextField maxMonthsField = new JTextField("15");
+
+        JLabel dlongLabel = new JLabel("Только Dlong > 0:");
+        JCheckBox dlongCheckbox = new JCheckBox();
+        dlongCheckbox.setSelected(true);
+
+        JLabel riskLabel = new JLabel("Исключить высокий риск:");
+        JCheckBox riskCheckbox = new JCheckBox();
+        riskCheckbox.setSelected(true);
+
+        JLabel volumeLabel = new JLabel("Мин. объём торгов (лот/день):");
+        JTextField volumeField = new JTextField("500");
+        volumeField.setToolTipText("0 = без фильтра, рекомендуется 500+");
+
+        paramsPanel.add(startDateLabel);
+        paramsPanel.add(startDateField);
+        paramsPanel.add(endDateLabel);
+        paramsPanel.add(endDateField);
+        paramsPanel.add(currencyLabel);
+        paramsPanel.add(currencyCombo);
+        paramsPanel.add(amortLabel);
+        paramsPanel.add(amortCheckbox);
+        paramsPanel.add(minDaysLabel);
+        paramsPanel.add(minDaysField);
+        paramsPanel.add(maxMonthsLabel);
+        paramsPanel.add(maxMonthsField);
+        paramsPanel.add(dlongLabel);
+        paramsPanel.add(dlongCheckbox);
+        paramsPanel.add(riskLabel);
+        paramsPanel.add(riskCheckbox);
+
+        dialog.add(paramsPanel, BorderLayout.CENTER);
+
+        // Описание
+        JTextArea descArea = new JTextArea(
+                "Симуляция стратегии на исторических данных:\n" +
+                        "• Каждый день расчёт цены покупки по волатильности\n" +
+                        "• Проверка исполнения заявок\n" +
+                        "• Удержание позиции до 30 дней\n" +
+                        "• Статистика: винрейт, прибыль, количество сделок\n\n" +
+                        "Фильтры применяются к облигациям перед бэктестом."
+        );
+        descArea.setEditable(false);
+        descArea.setLineWrap(true);
+        descArea.setWrapStyleWord(true);
+        descArea.setFont(new Font("Arial", Font.PLAIN, 11));
+        descArea.setBackground(new Color(240, 248, 255));
+        descArea.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        dialog.add(descArea, BorderLayout.NORTH);
+
+        // Кнопки
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 10));
+
+        JButton runButton = new JButton("🚀 Запустить");
+        runButton.setFont(new Font("Arial", Font.BOLD, 12));
+        runButton.addActionListener(e -> {
+            try {
+                LocalDate startDate = LocalDate.parse(startDateField.getText());
+                LocalDate endDate = LocalDate.parse(endDateField.getText());
+
+                // Собрать параметры фильтров
+                BondStrategyBacktestService.BacktestFilters filters =
+                        new BondStrategyBacktestService.BacktestFilters();
+                filters.currency = (String) currencyCombo.getSelectedItem();
+                filters.withoutAmortization = amortCheckbox.isSelected();
+                filters.minDaysToMaturity = Integer.parseInt(minDaysField.getText());
+                filters.maxMonthsToMaturity = Integer.parseInt(maxMonthsField.getText());
+                filters.requireDlong = dlongCheckbox.isSelected();
+                filters.excludeHighRisk = riskCheckbox.isSelected();
+
+
+                dialog.dispose();
+                runBacktest(startDate, endDate, filters);  // ← ПЕРЕДАЁМ FILTERS
+
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(dialog,
+                        "Ошибка в параметрах: " + ex.getMessage(),
+                        "Ошибка", JOptionPane.ERROR_MESSAGE);
+            }
+        });
+
+        JButton cancelButton = new JButton("❌ Отмена");
+        cancelButton.addActionListener(e -> dialog.dispose());
+
+        buttonPanel.add(runButton);
+        buttonPanel.add(cancelButton);
+        dialog.add(buttonPanel, BorderLayout.SOUTH);
+
+        dialog.setVisible(true);
+    }
+
+    /**
+     * Запуск бэктестинга стратегии
+     */
+    private void runBacktest(LocalDate startDate, LocalDate endDate,
+                             BondStrategyBacktestService.BacktestFilters filters) {
+
+        log.info("🧪 Запуск бэктестинга с {} по {} с фильтрами: валюта={}, без_амортизации={}",
+                startDate, endDate, filters.currency, filters.withoutAmortization);
+
+        // Показать прогресс
+        JDialog progressDialog = new JDialog(this, "🧪 Бэктестинг...", false);
+        progressDialog.setSize(400, 150);
+        progressDialog.setLocationRelativeTo(this);
+        progressDialog.setLayout(new BorderLayout(10, 10));
+
+        JLabel progressLabel = new JLabel("⏳ Загрузка исторических данных...", SwingConstants.CENTER);
+        progressLabel.setFont(new Font("Arial", Font.BOLD, 14));
+        progressDialog.add(progressLabel, BorderLayout.CENTER);
+
+        JProgressBar progressBar = new JProgressBar();
+        progressBar.setIndeterminate(true);
+        progressDialog.add(progressBar, BorderLayout.SOUTH);
+
+        progressDialog.setVisible(true);
+
+        // Запуск в фоновом потоке
+        SwingWorker<BondStrategyBacktestService.BacktestReport, Void> worker =
+                new SwingWorker<>() {
+                    @Override
+                    protected BondStrategyBacktestService.BacktestReport doInBackground() {
+                        try {
+                            CandlesApiService candlesApi = new CandlesApiService(
+                                    ConnectorConfig.getApiToken(),
+                                    ConnectorConfig.API_URL,
+                                    ConnectorConfig.API_PORT
+                            );
+                            BondsRepository bondsRepo = new BondsRepository();
+                            ParametersRepository paramsRepo = new ParametersRepository();
+
+                            BondStrategyBacktestService backtestService =
+                                    new BondStrategyBacktestService(candlesApi, bondsRepo, paramsRepo);
+
+                            // ← ПЕРЕДАЁМ 3 ПАРАМЕТРА
+                            return backtestService.runBacktest(startDate, endDate, filters);
+
+                        } catch (Exception e) {
+                            log.error("Ошибка бэктестинга", e);
+                            throw new RuntimeException(e);
+                        }
+                    }
+
+                    @Override
+                    protected void done() {
+                        progressDialog.dispose();
+
+                        try {
+                            BondStrategyBacktestService.BacktestReport report = get();
+                            showBacktestReport(report);
+
+                        } catch (Exception e) {
+                            log.error("Ошибка получения результатов бэктеста", e);
+                            JOptionPane.showMessageDialog(TinkoffInvestGui.this,
+                                    "Ошибка: " + e.getMessage(),
+                                    "Ошибка бэктестинга", JOptionPane.ERROR_MESSAGE);
+                        }
+                    }
+                };
+
+        worker.execute();
+    }
+
+    /**
+     * Показать результаты бэктестинга
+     */
+    private void showBacktestReport(BondStrategyBacktestService.BacktestReport report) {
+        log.info("📊 Показываем отчёт бэктестинга: {} облигаций, {} сделок",
+                report.getTotalBonds(), report.getTotalTrades());
+
+        JDialog dialog = new JDialog(this, "📊 Отчёт бэктестинга стратегии", false);
+        dialog.setSize(1400, 800);
+        dialog.setLocationRelativeTo(this);
+        dialog.setLayout(new BorderLayout(10, 10));
+
+        // Общая статистика
+        JPanel statsPanel = new JPanel(new GridLayout(2, 5, 15, 10));
+        statsPanel.setBorder(BorderFactory.createTitledBorder("📈 Общая статистика"));
+        statsPanel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
+
+        addStatLabel(statsPanel, "📅 Период:",
+                String.format("%s — %s", report.getStartDate(), report.getEndDate()));
+        addStatLabel(statsPanel, "📊 Облигаций:", String.valueOf(report.getTotalBonds()));
+        addStatLabel(statsPanel, "🔄 Всего сделок:", String.valueOf(report.getTotalTrades()));
+        addStatLabel(statsPanel, "✅ Прибыльных:",
+                String.format("%d (%.1f%%)", report.getProfitableTrades(), report.getWinRate()));
+        addStatLabel(statsPanel, "❌ Убыточных:", String.valueOf(report.getLosingTrades()));
+
+        addStatLabel(statsPanel, "💰 Общая прибыль:", String.format("%.2f₽", report.getTotalProfit()));
+        addStatLabel(statsPanel, "📊 Средняя прибыль:",
+                String.format("%.2f₽ (%.2f%%)", report.getAvgProfitPerTrade(), report.getAvgProfitPercent()));
+        addStatLabel(statsPanel, "⏱️ Ср. удержание:",
+                String.format("%.1f дней", report.getAvgHoldingDays()));
+        addStatLabel(statsPanel, "🎯 Винрейт:", String.format("%.1f%%", report.getWinRate()));
+        addStatLabel(statsPanel, "📈 Период анализа:",
+                String.format("%d месяцев", report.getAnalysisPeriodMonths()));
+
+        dialog.add(statsPanel, BorderLayout.NORTH);
+
+        // Таблица результатов по облигациям
+        String[] columns = {
+                "Тикер", "Название", "Сделок", "Прибыльных", "Убыточных",
+                "Винрейт %", "Общая прибыль", "Ср. прибыль", "Ср. прибыль %", "Ср. удержание дней"
+        };
+
+        List<BondStrategyBacktestService.BondBacktestResult> results = report.getBondResults();
+        Object[][] data = new Object[results.size()][columns.length];
+
+        for (int i = 0; i < results.size(); i++) {
+            BondStrategyBacktestService.BondBacktestResult r = results.get(i);
+
+            data[i][0] = r.getTicker();
+            data[i][1] = r.getName();
+            data[i][2] = r.getTotalTrades();
+            data[i][3] = r.getProfitableTrades();
+            data[i][4] = r.getLosingTrades();
+            data[i][5] = String.format("%.1f%%", r.getWinRate());
+            data[i][6] = String.format("%.2f₽", r.getTotalProfit());
+            data[i][7] = String.format("%.2f₽", r.getAvgProfit());
+            data[i][8] = String.format("%.2f%%", r.getAvgProfitPercent());
+            data[i][9] = String.format("%.1f", r.getAvgHoldingDays());
+        }
+
+        JTable table = new JTable(new DefaultTableModel(data, columns));
+        table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+        table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+
+        // Клик для просмотра сделок конкретной облигации
+        table.getSelectionModel().addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
+                int selectedRow = table.getSelectedRow();
+                if (selectedRow >= 0) {
+                    BondStrategyBacktestService.BondBacktestResult bondResult = results.get(selectedRow);
+                    showBondTradesDialog(bondResult);
+                }
+            }
+        });
+        addTableCopyMenu(table);
+
+        JScrollPane scrollPane = new JScrollPane(table);
+        dialog.add(scrollPane, BorderLayout.CENTER);
+
+        // Информация
+        JPanel infoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JLabel infoLabel = new JLabel("💡 Кликните на строку для просмотра детальных сделок");
+        infoLabel.setFont(new Font("Arial", Font.BOLD, 12));
+        infoPanel.add(infoLabel);
+
+        JPanel bottomPanel = new JPanel(new BorderLayout());
+        bottomPanel.add(infoPanel, BorderLayout.NORTH);
+
+        JButton closeButton = new JButton("❌ Закрыть");
+        closeButton.addActionListener(e -> dialog.dispose());
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
+        buttonPanel.add(closeButton);
+        bottomPanel.add(buttonPanel, BorderLayout.SOUTH);
+
+        dialog.add(bottomPanel, BorderLayout.SOUTH);
+
+        dialog.setVisible(true);
+    }
+
+    /**
+     * Добавить строку статистики
+     */
+    private void addStatLabel(JPanel panel, String label, String value) {
+        JLabel labelComp = new JLabel(label);
+        labelComp.setFont(new Font("Arial", Font.BOLD, 11));
+
+        JLabel valueComp = new JLabel(value);
+        valueComp.setFont(new Font("Arial", Font.PLAIN, 11));
+
+        panel.add(labelComp);
+        panel.add(valueComp);
+    }
+
+    /**
+     * Показать детальные сделки для облигации
+     */
+    private void showBondTradesDialog(BondStrategyBacktestService.BondBacktestResult bondResult) {
+        JDialog dialog = new JDialog(this,
+                String.format("📋 Сделки: %s (%s)", bondResult.getTicker(), bondResult.getName()),
+                true);
+        dialog.setSize(1200, 600);
+        dialog.setLocationRelativeTo(this);
+        dialog.setLayout(new BorderLayout(10, 10));
+
+        String[] columns = {
+                "Дата покупки", "Цена покупки", "Волатильность",
+                "Дата продажи", "Цена продажи", "Удержание дней",
+                "Прибыль", "Прибыль %"
+        };
+
+        List<BondStrategyBacktestService.Trade> trades = bondResult.getTrades();
+        Object[][] data = new Object[trades.size()][columns.length];
+
+        for (int i = 0; i < trades.size(); i++) {
+            BondStrategyBacktestService.Trade t = trades.get(i);
+
+            data[i][0] = t.getBuyDate();
+            data[i][1] = String.format("%.2f₽", t.getBuyPrice());
+            data[i][2] = String.format("%.4f₽", t.getVolatility());
+            data[i][3] = t.getSellDate();
+            data[i][4] = String.format("%.2f₽", t.getSellPrice());
+            data[i][5] = t.getHoldingDays();
+            data[i][6] = String.format("%.2f₽", t.getProfit());
+            data[i][7] = String.format("%.2f%%", t.getProfitPercent());
+        }
+
+        JTable table = new JTable(new DefaultTableModel(data, columns));
+        table.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
+
+        addTableCopyMenu(table);
+
+        JScrollPane scrollPane = new JScrollPane(table);
+        dialog.add(scrollPane, BorderLayout.CENTER);
+
+        JButton closeButton = new JButton("❌ Закрыть");
+        closeButton.addActionListener(e -> dialog.dispose());
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
+        buttonPanel.add(closeButton);
+        dialog.add(buttonPanel, BorderLayout.SOUTH);
+
+        dialog.setVisible(true);
+    }
+
+    /**
+     * Добавляет контекстное меню для копирования данных таблицы в буфер обмена
+     * Данные копируются в формате, совместимом с Excel (с заголовками, разделитель TAB)
+     */
+    private void addTableCopyMenu(JTable table) {
+        JPopupMenu popupMenu = new JPopupMenu();
+
+        // Пункт меню "Копировать всё"
+        JMenuItem copyAllItem = new JMenuItem("📋 Копировать всё в буфер обмена");
+        copyAllItem.setFont(new Font("Arial", Font.BOLD, 12));
+        copyAllItem.addActionListener(e -> {
+            try {
+                String data = getTableDataWithHeaders(table);
+                copyToClipboard(data);
+
+                // Показать уведомление
+                JOptionPane.showMessageDialog(this,
+                        String.format("Скопировано %d строк (с заголовками)\n\n" +
+                                        "Теперь можно вставить в Excel (Ctrl+V)",
+                                table.getRowCount()),
+                        "✅ Данные скопированы",
+                        JOptionPane.INFORMATION_MESSAGE);
+
+                log.info("📋 Скопировано {} строк из таблицы в буфер обмена", table.getRowCount());
+
+            } catch (Exception ex) {
+                log.error("Ошибка копирования данных таблицы", ex);
+                JOptionPane.showMessageDialog(this,
+                        "Ошибка копирования: " + ex.getMessage(),
+                        "Ошибка", JOptionPane.ERROR_MESSAGE);
+            }
+        });
+
+        popupMenu.add(copyAllItem);
+
+        // Привязать меню к таблице
+        table.setComponentPopupMenu(popupMenu);
+
+        // Также добавить возможность вызова через правую кнопку мыши
+        table.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    popupMenu.show(e.getComponent(), e.getX(), e.getY());
+                }
+            }
+
+            @Override
+            public void mouseReleased(java.awt.event.MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    popupMenu.show(e.getComponent(), e.getX(), e.getY());
+                }
+            }
+        });
+    }
+
+    /**
+     * Получает данные таблицы с заголовками в формате для Excel
+     * Использует TAB как разделитель колонок, \n как разделитель строк
+     */
+    private String getTableDataWithHeaders(JTable table) {
+        StringBuilder sb = new StringBuilder();
+
+        // 1. Заголовки колонок
+        int columnCount = table.getColumnCount();
+        for (int col = 0; col < columnCount; col++) {
+            sb.append(table.getColumnName(col));
+            if (col < columnCount - 1) {
+                sb.append("\t");  // TAB разделитель
+            }
+        }
+        sb.append("\n");
+
+        // 2. Данные строк
+        int rowCount = table.getRowCount();
+        for (int row = 0; row < rowCount; row++) {
+            for (int col = 0; col < columnCount; col++) {
+                Object value = table.getValueAt(row, col);
+                sb.append(value != null ? value.toString() : "");
+                if (col < columnCount - 1) {
+                    sb.append("\t");  // TAB разделитель
+                }
+            }
+            sb.append("\n");
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * Копирует текст в системный буфер обмена
+     */
+    private void copyToClipboard(String text) {
+        java.awt.datatransfer.StringSelection selection =
+                new java.awt.datatransfer.StringSelection(text);
+        java.awt.Toolkit.getDefaultToolkit()
+                .getSystemClipboard()
+                .setContents(selection, selection);
     }
 
 
