@@ -12,10 +12,7 @@ import org.slf4j.LoggerFactory;
  * Параметры загружаются из invest.properties файла.
  */
 public class ConnectorConfig {
-
-    // ✅ ДОБАВЛЯЕМ ЛОГГЕР
     private static final Logger log = LoggerFactory.getLogger(ConnectorConfig.class);
-
     private static final Properties properties = new Properties();
     private static String cachedToken = null;
 
@@ -49,14 +46,30 @@ public class ConnectorConfig {
         API_URL = parts[0];
         API_PORT = parts.length > 1 ? Integer.parseInt(parts[1]) : 443;
 
-        // Параметры БД
-        DB_URL = getProperty("db.url", "jdbc:postgresql://localhost:5432/algotrade");
-        DB_USER = getProperty("db.username", "trader");
-        DB_PASSWORD = getProperty("db.password", "SecurePass123!");
+        // Параметры БД - УБРАНЫ ДЕФОЛТНЫЕ ЗНАЧЕНИЯ!
+        DB_URL = getPropertyRequired("db.url");
+        DB_USER = getPropertyRequired("db.username");
+        DB_PASSWORD = getPropertyRequired("db.password");
+    }
+
+    /**
+     * Получает ОБЯЗАТЕЛЬНОЕ свойство из invest.properties
+     * Выбрасывает исключение, если свойство не найдено
+     */
+    private static String getPropertyRequired(String key) {
+        String value = properties.getProperty(key);
+        if (value == null || value.trim().isEmpty()) {
+            throw new IllegalStateException(
+                    "❌ Обязательное свойство '" + key + "' не найдено в invest.properties!\n" +
+                            "Проверьте файл src/main/resources/invest.properties"
+            );
+        }
+        return value.trim();
     }
 
     /**
      * Получает свойство из invest.properties с значением по умолчанию
+     * (для необязательных параметров)
      */
     private static String getProperty(String key, String defaultValue) {
         String value = properties.getProperty(key);
@@ -87,7 +100,6 @@ public class ConnectorConfig {
                 log.info("✓ Токен загружен из БД (длина: {} символов)", cachedToken.length());
                 return cachedToken;
             }
-
         } catch (Exception e) {
             log.info("⚠️ БД недоступна, пытаюсь получить токен из invest.properties");
         }
@@ -133,7 +145,6 @@ public class ConnectorConfig {
             log.info("⚠️ Ошибка подключения к БД: {}", e.getMessage());
             throw e;
         }
-
         return null;
     }
 

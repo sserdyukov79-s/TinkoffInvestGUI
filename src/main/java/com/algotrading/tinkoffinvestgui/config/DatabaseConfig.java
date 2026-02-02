@@ -21,18 +21,40 @@ public class DatabaseConfig {
     }
 
     public String getDbUrl() {
-        return properties.getProperty("db.url", "jdbc:postgresql://localhost:5432/algotrade");
+        String url = properties.getProperty("db.url");
+        if (url == null || url.trim().isEmpty()) {
+            throw new IllegalStateException(
+                    "❌ Свойство 'db.url' не найдено в invest.properties!\n" +
+                            "Добавьте в файл: db.url=jdbc:postgresql://localhost:5432/algotrade"
+            );
+        }
+        return url;
     }
 
     public String getDbUsername() {
-        return properties.getProperty("db.username", "trader");
+        String username = properties.getProperty("db.username");
+        if (username == null || username.trim().isEmpty()) {
+            throw new IllegalStateException(
+                    "❌ Свойство 'db.username' не найдено в invest.properties!\n" +
+                            "Добавьте в файл: db.username=your_username"
+            );
+        }
+        return username;
     }
 
     public String getDbPassword() {
-        return properties.getProperty("db.password", "SecurePass123!");
+        String password = properties.getProperty("db.password");
+        if (password == null || password.trim().isEmpty()) {
+            throw new IllegalStateException(
+                    "❌ Свойство 'db.password' не найдено в invest.properties!\n" +
+                            "Добавьте в файл: db.password=your_password"
+            );
+        }
+        return password;
     }
 
     public String getDbDriver() {
+        // Драйвер можно оставить с дефолтом - это не секрет
         return properties.getProperty("db.driver", "org.postgresql.Driver");
     }
 }
