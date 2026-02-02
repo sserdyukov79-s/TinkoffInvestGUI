@@ -604,7 +604,7 @@ public class TinkoffInvestGui extends JFrame {
 
             String accountId = AccountService.getActiveAccountId();
 
-            int confirm = JOptionPane.showConfirmDialog(this,
+/*                        int confirm = JOptionPane.showConfirmDialog(this,
                     String.format("Отправить %d заявок на биржу?\n\nAccount ID: %s\n\n⚠️ Это реальные деньги!",
                             instruments.size(), accountId),
                     "Подтверждение отправки", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
@@ -613,7 +613,7 @@ public class TinkoffInvestGui extends JFrame {
                 log.info("❌ Отправка отменена пользователем");
                 return;
             }
-
+*/
             log.info("📤 Начинается пакетная отправка {} заявок", instruments.size());
             log.info("📤 Отправка {} заявок", instruments.size());
             OrdersBusinessService service = new OrdersBusinessService();

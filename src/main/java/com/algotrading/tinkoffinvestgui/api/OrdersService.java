@@ -189,7 +189,7 @@ public class OrdersService {
      * Генерирует уникальный Order ID
      */
     private String generateOrderId() {
-        return "ORDER_" + System.currentTimeMillis() + "_" + UUID.randomUUID().toString().substring(0, 8);
+        return UUID.randomUUID().toString();
     }
 
     /**
