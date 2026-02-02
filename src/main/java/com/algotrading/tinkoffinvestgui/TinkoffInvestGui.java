@@ -12,6 +12,7 @@ import com.algotrading.tinkoffinvestgui.entity.Instrument;
 import com.algotrading.tinkoffinvestgui.repository.BondsRepository;
 import com.algotrading.tinkoffinvestgui.repository.InstrumentsRepository;
 import com.algotrading.tinkoffinvestgui.repository.ParametersRepository;
+/*
 import com.algotrading.tinkoffinvestgui.service.AccountService;
 import com.algotrading.tinkoffinvestgui.service.OrdersBusinessService;
 import com.algotrading.tinkoffinvestgui.service.OrdersScheduler;
@@ -19,6 +20,11 @@ import com.algotrading.tinkoffinvestgui.service.CandlesExportService;
 import com.algotrading.tinkoffinvestgui.service.BondsAnalysisService;
 import com.algotrading.tinkoffinvestgui.service.BondStrategyCalculator;
 import com.algotrading.tinkoffinvestgui.service.BondStrategyBacktestService;
+ */
+import com.algotrading.tinkoffinvestgui.util.*;
+import com.algotrading.tinkoffinvestgui.model.*;
+import com.algotrading.tinkoffinvestgui.service.*;
+import com.algotrading.tinkoffinvestgui.controller.*;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

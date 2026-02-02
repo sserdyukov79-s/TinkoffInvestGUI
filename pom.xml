@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
-         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.algotrading</groupId>
@@ -12,53 +11,81 @@
     <properties>
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
-        <tinkoff.sdk.version>1.44</tinkoff.sdk.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <tinkoff.sdk.version>1.44</tinkoff.sdk.version>
+        <grpc.version>1.59.0</grpc.version>
     </properties>
 
     <dependencies>
-        <!-- Только Tinkoff SDK (БЕЗ LOMBOK) -->
+        <!-- Tinkoff Invest API SDK - ОСНОВНОЙ -->
         <dependency>
             <groupId>ru.tinkoff.piapi</groupId>
             <artifactId>java-sdk-core</artifactId>
             <version>${tinkoff.sdk.version}</version>
         </dependency>
+
+        <!-- Tinkoff Invest API SDK - gRPC КОНТРАКТЫ -->
         <dependency>
             <groupId>ru.tinkoff.piapi</groupId>
-            <artifactId>java-sdk-spring-boot-starter</artifactId>
-            <version>1.44</version>
+            <artifactId>java-sdk-grpc-contract</artifactId>
+            <version>${tinkoff.sdk.version}</version>
         </dependency>
-        <!-- PostgreSQL JDBC Driver -->
+
+        <!-- gRPC зависимости -->
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-netty-shaded</artifactId>
+            <version>${grpc.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-stub</artifactId>
+            <version>${grpc.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-protobuf</artifactId>
+            <version>${grpc.version}</version>
+        </dependency>
+
+        <!-- PostgreSQL Driver -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <version>42.7.9</version>
         </dependency>
+
+        <!-- Gson для JSON -->
         <dependency>
             <groupId>com.google.code.gson</groupId>
             <artifactId>gson</artifactId>
             <version>2.10.1</version>
         </dependency>
-        <!-- ✅ Protobuf Java Util (для JsonFormat) -->
+
+        <!-- Protobuf -->
         <dependency>
             <groupId>com.google.protobuf</groupId>
             <artifactId>protobuf-java-util</artifactId>
             <version>3.25.1</version>
         </dependency>
-        <!-- SLF4J API -->
+
+        <!-- Логирование -->
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
             <version>2.0.9</version>
         </dependency>
-        <!-- Logback (реализация SLF4J) -->
+
         <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
             <version>1.4.14</version>
         </dependency>
-        <!-- HikariCP Connection Pool -->
+
+        <!-- HikariCP для пула соединений БД -->
         <dependency>
             <groupId>com.zaxxer</groupId>
             <artifactId>HikariCP</artifactId>
@@ -74,7 +101,6 @@
                 <version>3.11.0</version>
             </plugin>
 
-            <!-- Exec Maven Plugin для запуска приложения -->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>
