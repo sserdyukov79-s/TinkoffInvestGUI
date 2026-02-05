@@ -9,6 +9,8 @@ import java.sql.*;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.math.BigDecimal;
+import com.algotrading.tinkoffinvestgui.db.DatabaseConnection;
 
 /**
  * Repository для работы с таблицей instruments
@@ -280,5 +282,61 @@ public class InstrumentsRepository {
         }
 
         return LocalDate.now();
+    }
+
+    /**
+     * Найти инструмент по ID
+     */
+    public Instrument findById(int id) {
+        log.debug("🔍 Поиск инструмента по ID: {}", id);
+
+        String sql = "SELECT * FROM public.instruments WHERE id = ?";
+
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setInt(1, id);
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    Instrument instrument = new Instrument();
+                    instrument.setId(rs.getInt("id"));
+                    instrument.setBookdate(rs.getObject("bookdate", LocalDate.class));
+                    instrument.setFigi(rs.getString("figi"));
+                    instrument.setName(rs.getString("name"));
+                    instrument.setIsin(rs.getString("isin"));
+                    instrument.setPriority(rs.getInt("priority"));
+
+                    BigDecimal buyPrice = rs.getBigDecimal("buy_price");
+                    if (buyPrice != null) {
+                        instrument.setBuyPrice(buyPrice);
+                    }
+
+                    Integer buyQty = (Integer) rs.getObject("buy_quantity");
+                    if (buyQty != null) {
+                        instrument.setBuyQuantity(buyQty);
+                    }
+
+                    BigDecimal sellPrice = rs.getBigDecimal("sell_price");
+                    if (sellPrice != null) {
+                        instrument.setSellPrice(sellPrice);
+                    }
+
+                    Integer sellQty = (Integer) rs.getObject("sell_quantity");
+                    if (sellQty != null) {
+                        instrument.setSellQuantity(sellQty);
+                    }
+
+                    log.debug("✅ Найден инструмент: {}", instrument.getName());
+                    return instrument;
+                } else {
+                    log.warn("⚠️ Инструмент с ID {} не найден", id);
+                    return null;
+                }
+            }
+        } catch (SQLException e) {
+            log.error("❌ Ошибка поиска инструмента по ID: {}", id, e);
+            throw new RuntimeException("Ошибка поиска инструмента: " + e.getMessage(), e);
+        }
     }
 }
