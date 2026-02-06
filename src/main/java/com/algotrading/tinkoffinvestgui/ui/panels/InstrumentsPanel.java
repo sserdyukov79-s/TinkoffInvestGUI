@@ -16,6 +16,7 @@ import org.slf4j.LoggerFactory;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableColumn;
 import java.awt.*;
 import java.util.List;
 
@@ -142,23 +143,31 @@ public class InstrumentsPanel extends JPanel {
             return;
         }
 
-        Object[][] data = new Object[instruments.size()][10];
+        Object[][] data = new Object[instruments.size()][11];
         for (int i = 0; i < instruments.size(); i++) {
             Instrument inst = instruments.get(i);
-            data[i][0] = inst.getId();
-            data[i][1] = inst.getBookdate();
+            data[i][0] = inst.getId();              // ✅ СКРЫТАЯ КОЛОНКА
+            data[i][1] = inst.getPriority();
             data[i][2] = inst.getFigi();
             data[i][3] = inst.getName();
             data[i][4] = inst.getIsin();
-            data[i][5] = inst.getPriority();
+            data[i][5] = inst.getBuyQuantity();
             data[i][6] = inst.getBuyPrice();
-            data[i][7] = inst.getBuyQuantity();
-            data[i][8] = inst.getSellPrice();
-            data[i][9] = inst.getSellQuantity();
+            data[i][7] = inst.getManualBuyPrice();
+            data[i][8] = inst.getSellQuantity();
+            data[i][9] = inst.getSellPrice();
+            data[i][10] = inst.getManualSellPrice();
         }
 
         instrumentsTable.setModel(new DefaultTableModel(data, AppConstants.INSTRUMENTS_TABLE_COLUMNS));
+        hideColumn(instrumentsTable, 0);
         log.debug("🔄 Таблица обновлена, строк: {}, инструментов: {}", data.length, instruments.size());
+    }
+
+    // ✅ Вспомогательный метод
+    private void hideColumn(JTable table, int columnIndex) {
+        TableColumn column = table.getColumnModel().getColumn(columnIndex);
+        table.getColumnModel().removeColumn(column);
     }
 
     /**
@@ -183,7 +192,8 @@ public class InstrumentsPanel extends JPanel {
             return;
         }
 
-        int id = (int) instrumentsTable.getValueAt(selectedRow, 0);
+        //   int id = (int) instrumentsTable.getValueAt(selectedRow, 0);
+        int id = (Integer) instrumentsTable.getModel().getValueAt(selectedRow, 0);
         log.debug("✏️ Редактирование инструмента ID: {}", id);
 
         // Получить полные данные инструмента

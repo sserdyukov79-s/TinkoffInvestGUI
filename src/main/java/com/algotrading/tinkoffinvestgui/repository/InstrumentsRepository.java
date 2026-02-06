@@ -1,5 +1,6 @@
 package com.algotrading.tinkoffinvestgui.repository;
 
+import com.algotrading.tinkoffinvestgui.config.AppConstants;
 import com.algotrading.tinkoffinvestgui.config.ConnectorConfig;
 import com.algotrading.tinkoffinvestgui.entity.Instrument;
 import org.slf4j.Logger;
@@ -27,18 +28,11 @@ public class InstrumentsRepository {
         log.info("Получение всех инструментов из БД...");
         List<Instrument> instruments = new ArrayList<>();
 
-        // ✅ ДОБАВЛЕНЫ manual_buy_price, manual_sell_price
-        String sql = "SELECT id, bookdate, figi, name, isin, priority, " +
-                "buy_price, buy_quantity, sell_price, sell_quantity, " +
-                "manual_buy_price, manual_sell_price " +
-                "FROM public.instruments " +
-                "ORDER BY bookdate DESC, priority, name";
-
         try (Connection conn = getConnection();
              Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(sql)) {
+             ResultSet rs = stmt.executeQuery(AppConstants.SQL_SELECT_ALL_INSTRUMENTS)) {
 
-            log.debug("Выполнен SQL: {}", sql);
+            log.debug("Выполнен SQL: {}", AppConstants.SQL_SELECT_ALL_INSTRUMENTS);
 
             while (rs.next()) {
                 Instrument instrument = mapResultSetToInstrument(rs);
@@ -50,39 +44,8 @@ public class InstrumentsRepository {
             log.info("Загружено инструментов: {}", instruments.size());
         } catch (SQLException e) {
             log.error("Ошибка при получении инструментов", e);
-            log.error("SQL: {}", sql);
+            log.error("SQL: {}", AppConstants.SQL_SELECT_ALL_INSTRUMENTS);
             log.error("Детали: {}", e.getMessage());
-            throw new RuntimeException("Ошибка БД: " + e.getMessage(), e);
-        }
-
-        return instruments;
-    }
-
-    public List<Instrument> findByBookdate(LocalDate bookdate) {
-        log.info("Получение инструментов по дате: {}", bookdate);
-        List<Instrument> instruments = new ArrayList<>();
-
-        // ✅ ДОБАВЛЕНЫ manual_buy_price, manual_sell_price
-        String sql = "SELECT id, bookdate, figi, name, isin, priority, " +
-                "buy_price, buy_quantity, sell_price, sell_quantity, " +
-                "manual_buy_price, manual_sell_price " +
-                "FROM public.instruments " +
-                "WHERE bookdate = ? " +
-                "ORDER BY priority, name";
-
-        try (Connection conn = getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
-
-            pstmt.setDate(1, Date.valueOf(bookdate));
-            ResultSet rs = pstmt.executeQuery();
-
-            while (rs.next()) {
-                instruments.add(mapResultSetToInstrument(rs));
-            }
-
-            log.info("Загружено инструментов: {}", instruments.size());
-        } catch (SQLException e) {
-            log.error("Ошибка при получении инструментов по дате", e);
             throw new RuntimeException("Ошибка БД: " + e.getMessage(), e);
         }
 
@@ -92,40 +55,39 @@ public class InstrumentsRepository {
     public void save(Instrument instrument) {
         log.info("Сохранение инструмента: {}", instrument.getName());
 
-        // ✅ ДОБАВЛЕНЫ manual_buy_price, manual_sell_price
         String sql = "INSERT INTO public.instruments " +
                 "(bookdate, figi, name, isin, priority, " +
                 "buy_price, buy_quantity, sell_price, sell_quantity, " +
                 "manual_buy_price, manual_sell_price) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                "VALUES (current_date, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
-            pstmt.setDate(1, Date.valueOf(instrument.getBookdate()));
-            pstmt.setString(2, instrument.getFigi());
-            pstmt.setString(3, instrument.getName());
-            pstmt.setString(4, instrument.getIsin());
-            pstmt.setInt(5, instrument.getPriority());
-            pstmt.setBigDecimal(6, instrument.getBuyPrice());
+  //          pstmt.setDate(1, Date.valueOf(instrument.getBookdate()));
+            pstmt.setString(1, instrument.getFigi());
+            pstmt.setString(2, instrument.getName());
+            pstmt.setString(3, instrument.getIsin());
+            pstmt.setInt(4, instrument.getPriority());
+            pstmt.setBigDecimal(5, instrument.getBuyPrice());
 
             if (instrument.getBuyQuantity() != null) {
-                pstmt.setInt(7, instrument.getBuyQuantity());
+                pstmt.setInt(6, instrument.getBuyQuantity());
             } else {
-                pstmt.setNull(7, Types.INTEGER);
+                pstmt.setNull(6, Types.INTEGER);
             }
 
-            pstmt.setBigDecimal(8, instrument.getSellPrice());
+            pstmt.setBigDecimal(7, instrument.getSellPrice());
 
             if (instrument.getSellQuantity() != null) {
-                pstmt.setInt(9, instrument.getSellQuantity());
+                pstmt.setInt(8, instrument.getSellQuantity());
             } else {
-                pstmt.setNull(9, Types.INTEGER);
+                pstmt.setNull(8, Types.INTEGER);
             }
 
             // ✅ НОВЫЕ ПОЛЯ
-            pstmt.setBigDecimal(10, instrument.getManualBuyPrice());
-            pstmt.setBigDecimal(11, instrument.getManualSellPrice());
+            pstmt.setBigDecimal(9, instrument.getManualBuyPrice());
+            pstmt.setBigDecimal(10, instrument.getManualSellPrice());
 
             pstmt.executeUpdate();
             log.info("Инструмент сохранён: {}", instrument.getName());
@@ -138,41 +100,44 @@ public class InstrumentsRepository {
     public void update(Instrument instrument) {
         log.info("Обновление инструмента: {}", instrument.getName());
 
-        // ✅ ДОБАВЛЕНЫ manual_buy_price, manual_sell_price
         String sql = "UPDATE public.instruments SET " +
-                "bookdate = ?, figi = ?, name = ?, isin = ?, priority = ?, " +
+                "bookdate = current_date, figi = ?, name = ?, isin = ?, priority = ?, " +
                 "buy_price = ?, buy_quantity = ?, sell_price = ?, sell_quantity = ?, " +
                 "manual_buy_price = ?, manual_sell_price = ? " +
                 "WHERE id = ?";
 
+
         try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
-            pstmt.setDate(1, Date.valueOf(instrument.getBookdate()));
-            pstmt.setString(2, instrument.getFigi());
-            pstmt.setString(3, instrument.getName());
-            pstmt.setString(4, instrument.getIsin());
-            pstmt.setInt(5, instrument.getPriority());
-            pstmt.setBigDecimal(6, instrument.getBuyPrice());
+  //          pstmt.setDate(1, Date.valueOf(instrument.getBookdate()));
+            pstmt.setString(1, instrument.getFigi());
+            pstmt.setString(2, instrument.getName());
+            pstmt.setString(3, instrument.getIsin());
+            pstmt.setInt(4, instrument.getPriority());
+            pstmt.setBigDecimal(5, instrument.getBuyPrice());
 
             if (instrument.getBuyQuantity() != null) {
-                pstmt.setInt(7, instrument.getBuyQuantity());
+                pstmt.setInt(6, instrument.getBuyQuantity());
             } else {
-                pstmt.setNull(7, Types.INTEGER);
+                pstmt.setNull(6, Types.INTEGER);
             }
 
-            pstmt.setBigDecimal(8, instrument.getSellPrice());
+            pstmt.setBigDecimal(7, instrument.getSellPrice());
 
             if (instrument.getSellQuantity() != null) {
-                pstmt.setInt(9, instrument.getSellQuantity());
+                pstmt.setInt(8, instrument.getSellQuantity());
             } else {
-                pstmt.setNull(9, Types.INTEGER);
+                pstmt.setNull(8, Types.INTEGER);
             }
 
             // ✅ НОВЫЕ ПОЛЯ
-            pstmt.setBigDecimal(10, instrument.getManualBuyPrice());
-            pstmt.setBigDecimal(11, instrument.getManualSellPrice());
-            pstmt.setInt(12, instrument.getId());
+            pstmt.setBigDecimal(9, instrument.getManualBuyPrice());
+            pstmt.setBigDecimal(10, instrument.getManualSellPrice());
+            pstmt.setInt(11, instrument.getId());
+
+            log.debug("buy_price: {} (null={})", instrument.getBuyPrice(), instrument.getBuyPrice() == null);
+            log.debug("manual_buy_price: {} (null={})", instrument.getManualBuyPrice(), instrument.getManualBuyPrice() == null);
 
             pstmt.executeUpdate();
             log.info("Инструмент обновлён: {}", instrument.getName());
@@ -202,12 +167,12 @@ public class InstrumentsRepository {
     private Instrument mapResultSetToInstrument(ResultSet rs) throws SQLException {
         Instrument instrument = new Instrument();
         instrument.setId(rs.getInt("id"));
-
+/*
         Date bookdateDate = rs.getDate("bookdate");
         if (bookdateDate != null) {
             instrument.setBookdate(bookdateDate.toLocalDate());
         }
-
+*/
         instrument.setFigi(rs.getString("figi"));
         instrument.setName(rs.getString("name"));
         instrument.setIsin(rs.getString("isin"));
@@ -216,34 +181,13 @@ public class InstrumentsRepository {
         instrument.setBuyQuantity((Integer) rs.getObject("buy_quantity"));
         instrument.setSellPrice(rs.getBigDecimal("sell_price"));
         instrument.setSellQuantity((Integer) rs.getObject("sell_quantity"));
-
-        // ✅ НОВЫЕ ПОЛЯ
         instrument.setManualBuyPrice(rs.getBigDecimal("manual_buy_price"));
         instrument.setManualSellPrice(rs.getBigDecimal("manual_sell_price"));
 
         return instrument;
     }
 
-    public int count() {
-        log.debug("Подсчёт количества инструментов...");
-        String sql = "SELECT COUNT(*) FROM public.instruments";
 
-        try (Connection conn = getConnection();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(sql)) {
-
-            if (rs.next()) {
-                int count = rs.getInt(1);
-                log.debug("Всего инструментов: {}", count);
-                return count;
-            }
-        } catch (SQLException e) {
-            log.error("Ошибка при подсчёте инструментов", e);
-            throw new RuntimeException("Ошибка БД: " + e.getMessage(), e);
-        }
-
-        return 0;
-    }
 
     public LocalDate getLatestBookdate() {
         log.debug("Получение последней даты бронирования...");
@@ -271,7 +215,7 @@ public class InstrumentsRepository {
         log.debug("Поиск инструмента по ID: {}", id);
 
         // ✅ ДОБАВЛЕНЫ manual_buy_price, manual_sell_price
-        String sql = "SELECT id, bookdate, figi, name, isin, priority, " +
+        String sql = "SELECT id, figi, name, isin, priority, " +
                 "buy_price, buy_quantity, sell_price, sell_quantity, " +
                 "manual_buy_price, manual_sell_price " +
                 "FROM public.instruments WHERE id = ?";

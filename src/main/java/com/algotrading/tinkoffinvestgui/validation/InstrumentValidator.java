@@ -30,12 +30,7 @@ public class InstrumentValidator {
         } else if (!isValidIsin(instrument.getIsin())) {
             errors.add("Неверный формат ISIN (должен быть 12 символов)");
         }
-        
-        if (instrument.getBookdate() == null) {
-            errors.add("Дата обязательна");
-        } else if (instrument.getBookdate().isAfter(LocalDate.now())) {
-            errors.add("Дата не может быть в будущем");
-        }
+
         
         // Приоритет
         if (instrument.getPriority() == null) {

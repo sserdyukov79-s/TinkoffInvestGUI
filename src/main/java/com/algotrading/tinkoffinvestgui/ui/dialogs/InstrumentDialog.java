@@ -20,15 +20,17 @@ public class InstrumentDialog extends JDialog {
     private final InstrumentsRepository repository;
 
     // UI компоненты
-    private JTextField bookdateField;
+//    private JTextField bookdateField;
     private JTextField figiField;
     private JTextField nameField;
     private JTextField isinField;
     private JTextField priorityField;
-    private JTextField buyPriceField;
     private JTextField buyQtyField;
-    private JTextField sellPriceField;
+    private JTextField buyPriceField;
+    private JTextField buyManualPriceField;
     private JTextField sellQtyField;
+    private JTextField sellPriceField;
+    private JTextField sellManualPriceField;
 
     private Runnable onSaveCallback;
 
@@ -40,32 +42,35 @@ public class InstrumentDialog extends JDialog {
     }
 
     private void initializeUI() {
-        setLayout(new GridLayout(11, 2, 10, 10));
+        setLayout(new GridLayout(12, 2, 10, 10));
         setSize(500, 450);
         setLocationRelativeTo(getParent());
 
         // Инициализация полей
-        bookdateField = new JTextField(existingInstrument != null ?
-                existingInstrument.getBookdate().toString() : LocalDate.now().toString());
+//        bookdateField = new JTextField(existingInstrument != null ?
+//                existingInstrument.getBookdate().toString() : LocalDate.now().toString());
         figiField = new JTextField(existingInstrument != null && existingInstrument.getFigi() != null ?
                 existingInstrument.getFigi() : "");
         nameField = new JTextField(existingInstrument != null ? existingInstrument.getName() : "");
         isinField = new JTextField(existingInstrument != null ? existingInstrument.getIsin() : "");
         priorityField = new JTextField(existingInstrument != null ?
                 String.valueOf(existingInstrument.getPriority()) : "1");
-
-        buyPriceField = new JTextField(existingInstrument != null && existingInstrument.getBuyPrice() != null ?
-                existingInstrument.getBuyPrice().toString() : "");
         buyQtyField = new JTextField(existingInstrument != null && existingInstrument.getBuyQuantity() != null ?
                 String.valueOf(existingInstrument.getBuyQuantity()) : "");
-        sellPriceField = new JTextField(existingInstrument != null && existingInstrument.getSellPrice() != null ?
-                existingInstrument.getSellPrice().toString() : "");
+        buyPriceField = new JTextField(existingInstrument != null && existingInstrument.getBuyPrice() != null ?
+                existingInstrument.getBuyPrice().toString() : "");
+        buyManualPriceField = new JTextField(existingInstrument != null && existingInstrument.getManualBuyPrice() != null ?
+                existingInstrument.getManualBuyPrice().toString() : "");
         sellQtyField = new JTextField(existingInstrument != null && existingInstrument.getSellQuantity() != null ?
                 String.valueOf(existingInstrument.getSellQuantity()) : "");
+        sellPriceField = new JTextField(existingInstrument != null && existingInstrument.getSellPrice() != null ?
+                existingInstrument.getSellPrice().toString() : "");
+        sellManualPriceField = new JTextField(existingInstrument != null && existingInstrument.getManualSellPrice() != null ?
+                existingInstrument.getManualSellPrice().toString() : "");
 
         // Добавление компонентов
-        add(new JLabel("Дата (YYYY-MM-DD):"));
-        add(bookdateField);
+ //       add(new JLabel("Дата (YYYY-MM-DD):"));
+ //       add(bookdateField);
         add(new JLabel("FIGI:"));
         add(figiField);
         add(new JLabel("Название:"));
@@ -74,14 +79,18 @@ public class InstrumentDialog extends JDialog {
         add(isinField);
         add(new JLabel("Приоритет:"));
         add(priorityField);
-        add(new JLabel("Цена покупки:"));
-        add(buyPriceField);
         add(new JLabel("Кол-во покупки:"));
         add(buyQtyField);
-        add(new JLabel("Цена продажи:"));
-        add(sellPriceField);
+        add(new JLabel("Цена покупки:"));
+        add(buyPriceField);
+        add(new JLabel("Моя цена покупки:"));
+        add(buyManualPriceField);
         add(new JLabel("Кол-во продажи:"));
         add(sellQtyField);
+        add(new JLabel("Цена продажи:"));
+        add(sellPriceField);
+        add(new JLabel("Моя цена продажи:"));
+        add(sellManualPriceField);
 
         // Кнопки
         JButton saveButton = new JButton("Сохранить");
@@ -98,28 +107,38 @@ public class InstrumentDialog extends JDialog {
         try {
             Instrument instrument = existingInstrument != null ? existingInstrument : new Instrument();
 
-            if (existingInstrument != null) {
+ /*           if (existingInstrument != null) {
                 instrument.setId(existingInstrument.getId());
             }
 
             instrument.setBookdate(LocalDate.parse(bookdateField.getText()));
-            instrument.setFigi(figiField.getText().isEmpty() ? null : figiField.getText());
+*/            instrument.setFigi(figiField.getText().isEmpty() ? null : figiField.getText());
             instrument.setName(nameField.getText());
             instrument.setIsin(isinField.getText());
             instrument.setPriority(Integer.parseInt(priorityField.getText()));
 
-            if (!buyPriceField.getText().isEmpty()) {
-                instrument.setBuyPrice(new BigDecimal(buyPriceField.getText()));
-            }
             if (!buyQtyField.getText().isEmpty()) {
                 instrument.setBuyQuantity(Integer.parseInt(buyQtyField.getText()));
             }
-            if (!sellPriceField.getText().isEmpty()) {
-                instrument.setSellPrice(new BigDecimal(sellPriceField.getText()));
+
+            if (!buyPriceField.getText().isEmpty()) {
+                instrument.setBuyPrice(new BigDecimal(buyPriceField.getText()));
+            }
+            if (!buyManualPriceField.getText().isEmpty()) {
+                instrument.setManualBuyPrice(new BigDecimal(buyManualPriceField.getText()));
             }
             if (!sellQtyField.getText().isEmpty()) {
                 instrument.setSellQuantity(Integer.parseInt(sellQtyField.getText()));
             }
+            if (!sellPriceField.getText().isEmpty()) {
+                instrument.setSellPrice(new BigDecimal(sellPriceField.getText()));
+            }
+            if (!sellManualPriceField.getText().isEmpty()) {
+                instrument.setManualSellPrice(new BigDecimal(sellManualPriceField.getText()));
+            }
+
+            log.debug("buy_price: {} (null={})", instrument.getBuyPrice(), instrument.getBuyPrice() == null);
+            log.debug("manual_buy_price: {} (null={})", instrument.getManualBuyPrice(), instrument.getManualBuyPrice() == null);
 
             if (existingInstrument == null) {
                 log.info("💾 Сохранение инструмента: {}", instrument.getName());
