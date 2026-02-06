@@ -9,65 +9,66 @@ import java.sql.*;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.math.BigDecimal;
+import com.algotrading.tinkoffinvestgui.db.DatabaseConnection;
 
-/**
- * Repository для работы с таблицей instruments
- */
 public class InstrumentsRepository {
-
     private static final Logger log = LoggerFactory.getLogger(InstrumentsRepository.class);
 
     private Connection getConnection() throws SQLException {
         String dbUrl = ConnectorConfig.getPropertyValue("db.url");
         String dbUser = ConnectorConfig.getPropertyValue("db.username");
         String dbPassword = ConnectorConfig.getPropertyValue("db.password");
-
-        log.debug("🔌 Подключение к БД: {}", dbUrl);
-
+        log.debug("Подключение к БД: {}", dbUrl);
         return DriverManager.getConnection(dbUrl, dbUser, dbPassword);
     }
 
-    /**
-     * Получает все инструменты, отсортированные по приоритету и названию
-     */
     public List<Instrument> findAll() {
-        log.info("📊 Запрос всех инструментов из БД...");
-
+        log.info("Получение всех инструментов из БД...");
         List<Instrument> instruments = new ArrayList<>();
-        String sql = "SELECT * FROM public.instruments ORDER BY bookdate DESC, priority, name";
+
+        // ✅ ДОБАВЛЕНЫ manual_buy_price, manual_sell_price
+        String sql = "SELECT id, bookdate, figi, name, isin, priority, " +
+                "buy_price, buy_quantity, sell_price, sell_quantity, " +
+                "manual_buy_price, manual_sell_price " +
+                "FROM public.instruments " +
+                "ORDER BY bookdate DESC, priority, name";
 
         try (Connection conn = getConnection();
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
 
-            log.debug("✅ SQL выполнен успешно");
+            log.debug("Выполнен SQL: {}", sql);
 
             while (rs.next()) {
                 Instrument instrument = mapResultSetToInstrument(rs);
                 instruments.add(instrument);
-                log.debug("  ➜ Загружен: {} (ISIN: {})", instrument.getName(), instrument.getIsin());
+                log.debug("Загружен инструмент: {} (ISIN: {})",
+                        instrument.getName(), instrument.getIsin());
             }
 
-            log.info("✅ Загружено инструментов: {}", instruments.size());
-
+            log.info("Загружено инструментов: {}", instruments.size());
         } catch (SQLException e) {
-            log.error("❌ Ошибка получения инструментов из БД", e);
-            log.error("   SQL: {}", sql);
-            log.error("   Сообщение: {}", e.getMessage());
-            throw new RuntimeException("Ошибка получения инструментов: " + e.getMessage(), e);
+            log.error("Ошибка при получении инструментов", e);
+            log.error("SQL: {}", sql);
+            log.error("Детали: {}", e.getMessage());
+            throw new RuntimeException("Ошибка БД: " + e.getMessage(), e);
         }
 
         return instruments;
     }
 
-    /**
-     * Получает инструменты по конкретной дате
-     */
     public List<Instrument> findByBookdate(LocalDate bookdate) {
-        log.info("📊 Запрос инструментов по дате: {}", bookdate);
-
+        log.info("Получение инструментов по дате: {}", bookdate);
         List<Instrument> instruments = new ArrayList<>();
-        String sql = "SELECT * FROM public.instruments WHERE bookdate = ? ORDER BY priority, name";
+
+        // ✅ ДОБАВЛЕНЫ manual_buy_price, manual_sell_price
+        String sql = "SELECT id, bookdate, figi, name, isin, priority, " +
+                "buy_price, buy_quantity, sell_price, sell_quantity, " +
+                "manual_buy_price, manual_sell_price " +
+                "FROM public.instruments " +
+                "WHERE bookdate = ? " +
+                "ORDER BY priority, name";
 
         try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
@@ -79,27 +80,24 @@ public class InstrumentsRepository {
                 instruments.add(mapResultSetToInstrument(rs));
             }
 
-            log.info("✅ Загружено инструментов: {}", instruments.size());
-
+            log.info("Загружено инструментов: {}", instruments.size());
         } catch (SQLException e) {
-            log.error("❌ Ошибка получения инструментов по дате", e);
-            throw new RuntimeException("Ошибка получения инструментов по дате: " + e.getMessage(), e);
+            log.error("Ошибка при получении инструментов по дате", e);
+            throw new RuntimeException("Ошибка БД: " + e.getMessage(), e);
         }
 
         return instruments;
     }
 
-    /**
-     * Добавляет новый инструмент
-     */
     public void save(Instrument instrument) {
-        log.info("💾 Сохранение инструмента: {}", instrument.getName());
+        log.info("Сохранение инструмента: {}", instrument.getName());
 
-        String sql = """
-            INSERT INTO public.instruments
-            (bookdate, figi, name, isin, priority, buy_price, buy_quantity, sell_price, sell_quantity)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """;
+        // ✅ ДОБАВЛЕНЫ manual_buy_price, manual_sell_price
+        String sql = "INSERT INTO public.instruments " +
+                "(bookdate, figi, name, isin, priority, " +
+                "buy_price, buy_quantity, sell_price, sell_quantity, " +
+                "manual_buy_price, manual_sell_price) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
@@ -125,27 +123,27 @@ public class InstrumentsRepository {
                 pstmt.setNull(9, Types.INTEGER);
             }
 
-            pstmt.executeUpdate();
-            log.info("✅ Инструмент добавлен: {}", instrument.getName());
+            // ✅ НОВЫЕ ПОЛЯ
+            pstmt.setBigDecimal(10, instrument.getManualBuyPrice());
+            pstmt.setBigDecimal(11, instrument.getManualSellPrice());
 
+            pstmt.executeUpdate();
+            log.info("Инструмент сохранён: {}", instrument.getName());
         } catch (SQLException e) {
-            log.error("❌ Ошибка сохранения инструмента", e);
-            throw new RuntimeException("Ошибка сохранения инструмента: " + e.getMessage(), e);
+            log.error("Ошибка при сохранении инструмента", e);
+            throw new RuntimeException("Ошибка БД: " + e.getMessage(), e);
         }
     }
 
-    /**
-     * Обновляет существующий инструмент
-     */
     public void update(Instrument instrument) {
-        log.info("📝 Обновление инструмента: {}", instrument.getName());
+        log.info("Обновление инструмента: {}", instrument.getName());
 
-        String sql = """
-            UPDATE public.instruments
-            SET bookdate = ?, figi = ?, name = ?, isin = ?, priority = ?,
-                buy_price = ?, buy_quantity = ?, sell_price = ?, sell_quantity = ?
-            WHERE id = ?
-            """;
+        // ✅ ДОБАВЛЕНЫ manual_buy_price, manual_sell_price
+        String sql = "UPDATE public.instruments SET " +
+                "bookdate = ?, figi = ?, name = ?, isin = ?, priority = ?, " +
+                "buy_price = ?, buy_quantity = ?, sell_price = ?, sell_quantity = ?, " +
+                "manual_buy_price = ?, manual_sell_price = ? " +
+                "WHERE id = ?";
 
         try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
@@ -171,23 +169,21 @@ public class InstrumentsRepository {
                 pstmt.setNull(9, Types.INTEGER);
             }
 
-            pstmt.setInt(10, instrument.getId());
+            // ✅ НОВЫЕ ПОЛЯ
+            pstmt.setBigDecimal(10, instrument.getManualBuyPrice());
+            pstmt.setBigDecimal(11, instrument.getManualSellPrice());
+            pstmt.setInt(12, instrument.getId());
+
             pstmt.executeUpdate();
-
-            log.info("✅ Инструмент обновлён: {}", instrument.getName());
-
+            log.info("Инструмент обновлён: {}", instrument.getName());
         } catch (SQLException e) {
-            log.error("❌ Ошибка обновления инструмента", e);
-            throw new RuntimeException("Ошибка обновления инструмента: " + e.getMessage(), e);
+            log.error("Ошибка при обновлении инструмента", e);
+            throw new RuntimeException("Ошибка БД: " + e.getMessage(), e);
         }
     }
 
-    /**
-     * Удаляет инструмент по ID
-     */
     public void delete(int id) {
-        log.info("🗑️ Удаление инструмента ID: {}", id);
-
+        log.info("Удаление инструмента ID: {}", id);
         String sql = "DELETE FROM public.instruments WHERE id = ?";
 
         try (Connection conn = getConnection();
@@ -195,21 +191,16 @@ public class InstrumentsRepository {
 
             pstmt.setInt(1, id);
             pstmt.executeUpdate();
-
-            log.info("✅ Инструмент удалён (ID: {})", id);
-
+            log.info("Инструмент удалён ID: {}", id);
         } catch (SQLException e) {
-            log.error("❌ Ошибка удаления инструмента", e);
-            throw new RuntimeException("Ошибка удаления инструмента: " + e.getMessage(), e);
+            log.error("Ошибка при удалении инструмента", e);
+            throw new RuntimeException("Ошибка БД: " + e.getMessage(), e);
         }
     }
 
-    /**
-     * Преобразует ResultSet в Instrument
-     */
+    // ✅ ОБНОВЛЁННЫЙ МАППИНГ
     private Instrument mapResultSetToInstrument(ResultSet rs) throws SQLException {
         Instrument instrument = new Instrument();
-
         instrument.setId(rs.getInt("id"));
 
         Date bookdateDate = rs.getDate("bookdate");
@@ -226,15 +217,15 @@ public class InstrumentsRepository {
         instrument.setSellPrice(rs.getBigDecimal("sell_price"));
         instrument.setSellQuantity((Integer) rs.getObject("sell_quantity"));
 
+        // ✅ НОВЫЕ ПОЛЯ
+        instrument.setManualBuyPrice(rs.getBigDecimal("manual_buy_price"));
+        instrument.setManualSellPrice(rs.getBigDecimal("manual_sell_price"));
+
         return instrument;
     }
 
-    /**
-     * Подсчитывает количество инструментов
-     */
     public int count() {
-        log.debug("🔢 Подсчёт количества инструментов...");
-
+        log.debug("Подсчёт количества инструментов...");
         String sql = "SELECT COUNT(*) FROM public.instruments";
 
         try (Connection conn = getConnection();
@@ -243,24 +234,19 @@ public class InstrumentsRepository {
 
             if (rs.next()) {
                 int count = rs.getInt(1);
-                log.debug("✅ Всего инструментов: {}", count);
+                log.debug("Всего инструментов: {}", count);
                 return count;
             }
-
         } catch (SQLException e) {
-            log.error("❌ Ошибка подсчета инструментов", e);
-            throw new RuntimeException("Ошибка подсчета инструментов: " + e.getMessage(), e);
+            log.error("Ошибка при подсчёте инструментов", e);
+            throw new RuntimeException("Ошибка БД: " + e.getMessage(), e);
         }
 
         return 0;
     }
 
-    /**
-     * Получает последнюю использованную дату
-     */
     public LocalDate getLatestBookdate() {
-        log.debug("📅 Получение последней даты...");
-
+        log.debug("Получение последней даты бронирования...");
         String sql = "SELECT MAX(bookdate) FROM public.instruments";
 
         try (Connection conn = getConnection();
@@ -269,16 +255,45 @@ public class InstrumentsRepository {
 
             if (rs.next()) {
                 Date date = rs.getDate(1);
-                LocalDate result = date != null ? date.toLocalDate() : LocalDate.now();
-                log.debug("✅ Последняя дата: {}", result);
+                LocalDate result = (date != null) ? date.toLocalDate() : LocalDate.now();
+                log.debug("Последняя дата: {}", result);
                 return result;
             }
-
         } catch (SQLException e) {
-            log.error("❌ Ошибка получения последней даты", e);
-            throw new RuntimeException("Ошибка получения последней даты: " + e.getMessage(), e);
+            log.error("Ошибка при получении последней даты", e);
+            throw new RuntimeException("Ошибка БД: " + e.getMessage(), e);
         }
 
         return LocalDate.now();
+    }
+
+    public Instrument findById(int id) {
+        log.debug("Поиск инструмента по ID: {}", id);
+
+        // ✅ ДОБАВЛЕНЫ manual_buy_price, manual_sell_price
+        String sql = "SELECT id, bookdate, figi, name, isin, priority, " +
+                "buy_price, buy_quantity, sell_price, sell_quantity, " +
+                "manual_buy_price, manual_sell_price " +
+                "FROM public.instruments WHERE id = ?";
+
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setInt(1, id);
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    Instrument instrument = mapResultSetToInstrument(rs);
+                    log.debug("Найден инструмент: {}", instrument.getName());
+                    return instrument;
+                } else {
+                    log.warn("Инструмент не найден ID: {}", id);
+                    return null;
+                }
+            }
+        } catch (SQLException e) {
+            log.error("Ошибка при поиске инструмента ID: {}", id, e);
+            throw new RuntimeException("Ошибка БД: " + e.getMessage(), e);
+        }
     }
 }

@@ -8,44 +8,32 @@ import com.algotrading.tinkoffinvestgui.exception.DatabaseException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.math.BigDecimal;
 import java.util.List;
 
-/**
- * Бизнес-логика для работы с заявками
- */
 public class OrdersBusinessService {
-
     private static final Logger log = LoggerFactory.getLogger(OrdersBusinessService.class);
 
-    /**
-     * Отправляет массовые заявки для списка инструментов.
-     * Account ID берётся автоматически из БД (parameters.account1)
-     */
     public OrdersResult sendOrdersBatch(List<Instrument> instruments) {
-        // Получаем account ID из БД
         String accountId;
         try {
             accountId = AccountService.getActiveAccountId();
         } catch (DatabaseException e) {
-            log.error("❌ Не удалось получить account ID из БД", e);
+            log.error("Ошибка получения account ID из БД", e);
             return new OrdersResult(0, instruments.size(),
-                    "Account ID не настроен в БД. " + e.getMessage());
+                    "Ошибка получения Account ID из БД. " + e.getMessage());
         }
 
         return sendOrdersBatch(instruments, accountId);
     }
 
-    /**
-     * Отправляет массовые заявки для списка инструментов с указанным accountId
-     * (внутренний метод)
-     */
     private OrdersResult sendOrdersBatch(List<Instrument> instruments, String accountId) {
-        log.info("╔══════════════════════════════════════════════════════════════");
-        log.info("║ МАССОВАЯ ОТПРАВКА ЗАЯВОК НА БИРЖУ");
-        log.info("╠══════════════════════════════════════════════════════════════");
-        log.info("║ Account ID (из БД): {}", accountId);
-        log.info("║ Количество инструментов: {}", instruments.size());
-        log.info("╚══════════════════════════════════════════════════════════════");
+        log.info("=========================================");
+        log.info("НАЧАЛО ОТПРАВКИ ЗАЯВОК");
+        log.info("=========================================");
+        log.info("Account ID: {}", accountId);
+        log.info("Количество инструментов: {}", instruments.size());
+        log.info("=========================================");
 
         OrdersService ordersService = new OrdersService(
                 ConnectorConfig.getApiToken(),
@@ -60,93 +48,106 @@ public class OrdersBusinessService {
         try {
             for (Instrument instrument : instruments) {
                 try {
-                    log.info("\n📊 Обработка инструмента: {}", instrument.getName());
-                    log.info("   FIGI: {}", instrument.getFigi());
-                    log.info("   ISIN: {}", instrument.getIsin());
-                    log.info("   Приоритет: {}", instrument.getPriority());
+                    log.info("Обработка инструмента: {}", instrument.getName());
+                    log.info("FIGI: {}", instrument.getFigi());
+                    log.info("ISIN: {}", instrument.getIsin());
+                    log.info("Приоритет: {}", instrument.getPriority());
 
-                    // Отправляем заявку на покупку (если указана)
-                    if (isValidBuyOrder(instrument)) {
-                        log.info("\n🟢 Отправка заявки на ПОКУПКУ:");
-                        log.info("   Цена: {}", instrument.getBuyPrice());
-                        log.info("   Количество: {}", instrument.getBuyQuantity());
+                    // ✅ ИСПОЛЬЗУЕМ ЭФФЕКТИВНЫЕ ЦЕНЫ
+                    BigDecimal effectiveBuyPrice = instrument.getEffectiveBuyPrice();
+                    BigDecimal effectiveSellPrice = instrument.getEffectiveSellPrice();
+
+                    // Заявка на покупку
+                    if (effectiveBuyPrice != null
+                            && instrument.getBuyQuantity() != null
+                            && instrument.getBuyQuantity() > 0) {
+
+                        log.info("--- ЗАЯВКА НА ПОКУПКУ ---");
+
+                        // ✅ ЛОГИРУЕМ, ОТКУДА ВЗЯТА ЦЕНА
+                        if (instrument.getManualBuyPrice() != null) {
+                            log.info("Цена покупки (MANUAL): {}", effectiveBuyPrice);
+                        } else {
+                            log.info("Цена покупки (AUTO): {}", effectiveBuyPrice);
+                        }
+
+                        log.info("Количество: {}", instrument.getBuyQuantity());
 
                         ordersService.postBuyOrder(
                                 accountId,
                                 instrument.getFigi(),
                                 instrument.getBuyQuantity(),
-                                instrument.getBuyPrice()
+                                effectiveBuyPrice
                         );
 
                         successCount++;
-                        Thread.sleep(AppConstants.ORDERS_DELAY_MILLIS);
+                        Thread.sleep(AppConstants.ORDERSDELAYMILLIS);
                     }
 
-                    // Отправляем заявку на продажу (если указана)
-                    if (isValidSellOrder(instrument)) {
-                        log.info("\n🔴 Отправка заявки на ПРОДАЖУ:");
-                        log.info("   Цена: {}", instrument.getSellPrice());
-                        log.info("   Количество: {}", instrument.getSellQuantity());
+                    // Заявка на продажу
+                    if (effectiveSellPrice != null
+                            && instrument.getSellQuantity() != null
+                            && instrument.getSellQuantity() > 0) {
+
+                        log.info("--- ЗАЯВКА НА ПРОДАЖУ ---");
+
+                        // ✅ ЛОГИРУЕМ, ОТКУДА ВЗЯТА ЦЕНА
+                        if (instrument.getManualSellPrice() != null) {
+                            log.info("Цена продажи (MANUAL): {}", effectiveSellPrice);
+                        } else {
+                            log.info("Цена продажи (AUTO): {}", effectiveSellPrice);
+                        }
+
+                        log.info("Количество: {}", instrument.getSellQuantity());
 
                         ordersService.postSellOrder(
                                 accountId,
                                 instrument.getFigi(),
                                 instrument.getSellQuantity(),
-                                instrument.getSellPrice()
+                                effectiveSellPrice
                         );
 
                         successCount++;
-                        Thread.sleep(AppConstants.ORDERS_DELAY_MILLIS);
+                        Thread.sleep(AppConstants.ORDERSDELAYMILLIS);
                     }
 
                 } catch (Exception e) {
-                    log.error("❌ Ошибка отправки заявки для {}: {}",
+                    log.error("Ошибка по инструменту {}: {}",
                             instrument.getName(), e.getMessage(), e);
                     errorCount++;
-                    errors.append(String.format("- %s: %s\n",
+                    errors.append(String.format("- %s: %s%n",
                             instrument.getName(), e.getMessage()));
                 }
             }
-
         } finally {
             ordersService.shutdown();
+            log.info("=========================================");
+            log.info("ЗАВЕРШЕНИЕ ОТПРАВКИ ЗАЯВОК");
+            log.info("=========================================");
+            log.info("Успешных заявок: {}", successCount);
+            log.info("Ошибок: {}", errorCount);
+            log.info("=========================================");
         }
-
-        log.info("\n╔══════════════════════════════════════════════════════════════");
-        log.info("║ ИТОГИ ОТПРАВКИ ЗАЯВОК");
-        log.info("╠══════════════════════════════════════════════════════════════");
-        log.info("║ ✅ Успешно отправлено: {}", successCount);
-        log.info("║ ❌ Ошибок: {}", errorCount);
-        log.info("╚══════════════════════════════════════════════════════════════");
 
         return new OrdersResult(successCount, errorCount, errors.toString());
     }
 
-    /**
-     * Проверяет валидность заявки на покупку
-     */
     private boolean isValidBuyOrder(Instrument instrument) {
-        return instrument.getBuyPrice() != null &&
-                instrument.getBuyQuantity() != null &&
-                instrument.getBuyQuantity() > 0 &&
-                instrument.getFigi() != null &&
-                !instrument.getFigi().isEmpty();
+        return instrument.getBuyPrice() != null
+                && instrument.getBuyQuantity() != null
+                && instrument.getBuyQuantity() > 0
+                && instrument.getFigi() != null
+                && !instrument.getFigi().isEmpty();
     }
 
-    /**
-     * Проверяет валидность заявки на продажу
-     */
     private boolean isValidSellOrder(Instrument instrument) {
-        return instrument.getSellPrice() != null &&
-                instrument.getSellQuantity() != null &&
-                instrument.getSellQuantity() > 0 &&
-                instrument.getFigi() != null &&
-                !instrument.getFigi().isEmpty();
+        return instrument.getSellPrice() != null
+                && instrument.getSellQuantity() != null
+                && instrument.getSellQuantity() > 0
+                && instrument.getFigi() != null
+                && !instrument.getFigi().isEmpty();
     }
 
-    /**
-     * Результат массовой отправки заявок
-     */
     public static class OrdersResult {
         private final int successCount;
         private final int errorCount;
@@ -158,24 +159,13 @@ public class OrdersBusinessService {
             this.errors = errors;
         }
 
-        public int getSuccessCount() {
-            return successCount;
-        }
-
-        public int getErrorCount() {
-            return errorCount;
-        }
-
-        public String getErrors() {
-            return errors;
-        }
-
-        public boolean hasErrors() {
-            return errorCount > 0;
-        }
+        public int getSuccessCount() { return successCount; }
+        public int getErrorCount() { return errorCount; }
+        public String getErrors() { return errors; }
+        public boolean hasErrors() { return errorCount > 0; }
 
         public String getSummary() {
-            return String.format("✅ Успешно: %d | ❌ Ошибок: %d", successCount, errorCount);
+            return String.format("Успешно: %d, Ошибок: %d", successCount, errorCount);
         }
     }
 }

@@ -3,9 +3,9 @@ package com.algotrading.tinkoffinvestgui.entity;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
-/**
- * Entity для работы с инструментами из таблицы instruments
- */
+
+
+
 public class Instrument {
 
     private Integer id;
@@ -19,9 +19,13 @@ public class Instrument {
     private BigDecimal sellPrice;
     private Integer sellQuantity;
 
-    // Конструкторы
+    // ✅ НОВЫЕ ПОЛЯ
+    private BigDecimal manualBuyPrice;
+    private BigDecimal manualSellPrice;
+
+
     public Instrument() {
-        this.bookdate = LocalDate.now(); // По умолчанию текущая дата
+        this.bookdate = LocalDate.now();
     }
 
     public Instrument(String figi, String name, String isin, Integer priority) {
@@ -32,7 +36,7 @@ public class Instrument {
         this.priority = priority;
     }
 
-    // Getters и Setters
+    // Getters & Setters (существующие)
     public Integer getId() { return id; }
     public void setId(Integer id) { this.id = id; }
 
@@ -62,6 +66,30 @@ public class Instrument {
 
     public Integer getSellQuantity() { return sellQuantity; }
     public void setSellQuantity(Integer sellQuantity) { this.sellQuantity = sellQuantity; }
+
+    // ✅ НОВЫЕ ГЕТТЕРЫ/СЕТТЕРЫ
+    public BigDecimal getManualBuyPrice() { return manualBuyPrice; }
+    public void setManualBuyPrice(BigDecimal manualBuyPrice) { this.manualBuyPrice = manualBuyPrice; }
+
+    public BigDecimal getManualSellPrice() { return manualSellPrice; }
+    public void setManualSellPrice(BigDecimal manualSellPrice) { this.manualSellPrice = manualSellPrice; }
+
+    // ✅ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ - ЭФФЕКТИВНЫЕ ЦЕНЫ
+    /**
+     * Возвращает эффективную цену покупки:
+     * manual_buy_price если заполнено, иначе buy_price
+     */
+    public BigDecimal getEffectiveBuyPrice() {
+        return manualBuyPrice != null ? manualBuyPrice : buyPrice;
+    }
+
+    /**
+     * Возвращает эффективную цену продажи:
+     * manual_sell_price если заполнено, иначе sell_price
+     */
+    public BigDecimal getEffectiveSellPrice() {
+        return manualSellPrice != null ? manualSellPrice : sellPrice;
+    }
 
     @Override
     public String toString() {

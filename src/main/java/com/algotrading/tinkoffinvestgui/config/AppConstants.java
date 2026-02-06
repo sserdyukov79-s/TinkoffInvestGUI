@@ -34,6 +34,7 @@ public final class AppConstants {
     public static final long PORTFOLIO_UPDATE_INTERVAL_MINUTES = 5;
     public static final int ORDERS_DELAY_MILLIS = 500;
     public static final int GRPC_CONNECTION_TIMEOUT_SECONDS = 30;
+    public static final int ORDERSDELAYMILLIS = 500;
 
     // ===== SQL ЗАПРОСЫ =====
     public static final String SQL_SELECT_ALL_INSTRUMENTS =
@@ -44,11 +45,13 @@ public final class AppConstants {
 
     public static final String SQL_INSERT_INSTRUMENT =
             "INSERT INTO public.instruments (bookdate, figi, name, isin, priority, " +
-                    "buy_price, buy_quantity, sell_price, sell_quantity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    "buy_price, buy_quantity, sell_price, sell_quantity, manual_buy_price, manual_sell_price) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
     public static final String SQL_UPDATE_INSTRUMENT =
             "UPDATE public.instruments SET bookdate = ?, figi = ?, name = ?, isin = ?, priority = ?, " +
-                    "buy_price = ?, buy_quantity = ?, sell_price = ?, sell_quantity = ? WHERE id = ?";
+                    "buy_price = ?, buy_quantity = ?, sell_price = ?, sell_quantity = ?, " +
+                    "manual_buy_price = ?, manual_sell_price = ? WHERE id = ?";
 
     public static final String SQL_DELETE_INSTRUMENT =
             "DELETE FROM public.instruments WHERE id = ?";
@@ -58,6 +61,7 @@ public final class AppConstants {
 
     public static final String SQL_GET_LATEST_BOOKDATE =
             "SELECT MAX(bookdate) FROM public.instruments";
+
 
     // ===== СООБЩЕНИЯ =====
     public static final String MSG_NO_INSTRUMENTS = "Нет инструментов для формирования заявок";
@@ -71,7 +75,9 @@ public final class AppConstants {
     // ===== ЗАГОЛОВКИ ТАБЛИЦ =====
     public static final String[] INSTRUMENTS_TABLE_COLUMNS = {
             "ID", "Дата", "FIGI", "Название", "ISIN", "Приоритет",
-            "Цена покупки", "Кол-во покупки", "Цена продажи", "Кол-во продажи"
+            "Цена покупки", "Кол-во покупки",
+            "Цена продажи", "Кол-во продажи",
+            "Manual Buy", "Manual Sell"
     };
 
     public static final String[] ACCOUNTS_TABLE_COLUMNS = {
