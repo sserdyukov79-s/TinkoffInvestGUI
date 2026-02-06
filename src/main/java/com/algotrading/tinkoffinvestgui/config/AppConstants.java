@@ -38,7 +38,11 @@ public final class AppConstants {
 
     // ===== SQL ЗАПРОСЫ =====
     public static final String SQL_SELECT_ALL_INSTRUMENTS =
-            "SELECT * FROM public.instruments ORDER BY bookdate DESC, priority, name";
+    "SELECT id, priority, figi, name, isin,  " +
+            "buy_quantity, buy_price, manual_buy_price, sell_quantity, sell_price, manual_sell_price " +
+            "FROM public.instruments " +
+            "WHERE bookdate = CURRENT_DATE " +
+            "ORDER BY priority, name";
 
     public static final String SQL_SELECT_INSTRUMENTS_BY_DATE =
             "SELECT * FROM public.instruments WHERE bookdate = ? ORDER BY priority, name";
@@ -74,10 +78,9 @@ public final class AppConstants {
 
     // ===== ЗАГОЛОВКИ ТАБЛИЦ =====
     public static final String[] INSTRUMENTS_TABLE_COLUMNS = {
-            "ID", "Дата", "FIGI", "Название", "ISIN", "Приоритет",
-            "Цена покупки", "Кол-во покупки",
-            "Цена продажи", "Кол-во продажи",
-            "Manual Buy", "Manual Sell"
+            "ID", "Приоритет", "FIGI", "Название", "ISIN",
+             "Кол-во покупки", "Цена покупки", "Моя цена покупки",
+            "Кол-во продажи", "Цена продажи", "Моя цена продажи"
     };
 
     public static final String[] ACCOUNTS_TABLE_COLUMNS = {

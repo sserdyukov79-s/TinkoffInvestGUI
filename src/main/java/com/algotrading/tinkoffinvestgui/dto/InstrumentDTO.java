@@ -9,11 +9,11 @@ import java.time.LocalDate;
 public class InstrumentDTO {
 
     private Integer id;  // ← ИСПРАВЛЕНО: было Long, стало Integer
-    private LocalDate bookdate;
+//    private LocalDate bookdate;
+    private Integer priority;
     private String figi;
     private String name;
     private String isin;
-    private Integer priority;
     private BigDecimal buyPrice;
     private Integer buyQuantity;
     private BigDecimal sellPrice;
@@ -21,7 +21,7 @@ public class InstrumentDTO {
 
     // Конструкторы
     public InstrumentDTO() {
-        this.bookdate = LocalDate.now();
+    //    this.bookdate = LocalDate.now();
         this.priority = 1;
     }
 
@@ -33,15 +33,15 @@ public class InstrumentDTO {
     public void setId(Integer id) {  // ← ИСПРАВЛЕНО: было Long, стало Integer
         this.id = id;
     }
+    /*
+        public LocalDate getBookdate() {
+            return bookdate;
+        }
 
-    public LocalDate getBookdate() {
-        return bookdate;
-    }
-
-    public void setBookdate(LocalDate bookdate) {
-        this.bookdate = bookdate;
-    }
-
+        public void setBookdate(LocalDate bookdate) {
+            this.bookdate = bookdate;
+        }
+    */
     public String getFigi() {
         return figi;
     }
@@ -110,9 +110,9 @@ public class InstrumentDTO {
     public String toString() {
         return "InstrumentDTO{" +
                 "id=" + id +
+                ", priority=" + priority +
                 ", name='" + name + '\'' +
                 ", isin='" + isin + '\'' +
-                ", priority=" + priority +
                 '}';
     }
 }

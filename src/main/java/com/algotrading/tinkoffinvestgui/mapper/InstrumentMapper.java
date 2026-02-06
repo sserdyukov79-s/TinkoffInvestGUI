@@ -17,8 +17,9 @@ public class InstrumentMapper {
         }
         
         InstrumentDTO dto = new InstrumentDTO();
-        dto.setId(entity.getId());
-        dto.setBookdate(entity.getBookdate());
+  //      dto.setId(entity.getId());
+
+ //       dto.setBookdate(entity.getBookdate());
         dto.setFigi(entity.getFigi());
         dto.setName(entity.getName());
         dto.setIsin(entity.getIsin());
@@ -40,8 +41,8 @@ public class InstrumentMapper {
         }
         
         Instrument entity = new Instrument();
-        entity.setId(dto.getId());
-        entity.setBookdate(dto.getBookdate());
+ //       entity.setId(dto.getId());
+//        entity.setBookdate(dto.getBookdate());
         entity.setFigi(dto.getFigi());
         entity.setName(dto.getName());
         entity.setIsin(dto.getIsin());
@@ -62,7 +63,7 @@ public class InstrumentMapper {
             return;
         }
         
-        entity.setBookdate(dto.getBookdate());
+  //      entity.setBookdate(dto.getBookdate());
         entity.setFigi(dto.getFigi());
         entity.setName(dto.getName());
         entity.setIsin(dto.getIsin());
