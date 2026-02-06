@@ -1,5 +1,6 @@
 package com.algotrading.tinkoffinvestgui.ui.panels;
 
+import com.algotrading.tinkoffinvestgui.config.AppConstants;
 import com.algotrading.tinkoffinvestgui.entity.Instrument;
 import com.algotrading.tinkoffinvestgui.repository.InstrumentsRepository;
 import com.algotrading.tinkoffinvestgui.service.AccountService;
@@ -53,10 +54,7 @@ public class InstrumentsPanel extends JPanel {
         JPanel buttonsPanel = createButtonsPanel();
 
         // Таблица инструментов
-        String[] columns = {"ID", "Дата", "FIGI", "Название", "ISIN", "Приоритет",
-                "Цена покупки", "Кол-во покупки", "Цена продажи", "Кол-во продажи"};
-
-        instrumentsTable = new JTable(new DefaultTableModel(new Object[][]{}, columns));
+        instrumentsTable = new JTable(new DefaultTableModel(new Object[][]{}, AppConstants.INSTRUMENTS_TABLE_COLUMNS));
         instrumentsTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         TableUtils.addCopyMenu(instrumentsTable);
         instrumentsTable.getTableHeader().setReorderingAllowed(false);
@@ -159,9 +157,7 @@ public class InstrumentsPanel extends JPanel {
             data[i][9] = inst.getSellQuantity();
         }
 
-        instrumentsTable.setModel(new DefaultTableModel(data,
-                new String[]{"ID", "Дата", "FIGI", "Название", "ISIN", "Приоритет",
-                        "Цена покупки", "Кол-во покупки", "Цена продажи", "Кол-во продажи"}));
+        instrumentsTable.setModel(new DefaultTableModel(data, AppConstants.INSTRUMENTS_TABLE_COLUMNS));
         log.debug("🔄 Таблица обновлена, строк: {}, инструментов: {}", data.length, instruments.size());
     }
 
