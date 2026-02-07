@@ -130,16 +130,25 @@ public class InstrumentsRepository {
             } else {
                 pstmt.setNull(8, Types.INTEGER);
             }
+            if (instrument.getManualBuyPrice() != null) {
+                pstmt.setBigDecimal(9, instrument.getManualBuyPrice());
+            } else {
+                pstmt.setNull(9, Types.DECIMAL);
+            }
 
-            // ✅ НОВЫЕ ПОЛЯ
-            pstmt.setBigDecimal(9, instrument.getManualBuyPrice());
-            pstmt.setBigDecimal(10, instrument.getManualSellPrice());
+            if (instrument.getManualSellPrice() != null) {
+                pstmt.setBigDecimal(10, instrument.getManualSellPrice());
+            } else {
+                pstmt.setNull(10, Types.DECIMAL);
+            }
+
             pstmt.setInt(11, instrument.getId());
+            pstmt.executeUpdate();
 
             log.debug("buy_price: {} (null={})", instrument.getBuyPrice(), instrument.getBuyPrice() == null);
             log.debug("manual_buy_price: {} (null={})", instrument.getManualBuyPrice(), instrument.getManualBuyPrice() == null);
 
-            pstmt.executeUpdate();
+            //   pstmt.executeUpdate();
             log.info("Инструмент обновлён: {}", instrument.getName());
         } catch (SQLException e) {
             log.error("Ошибка при обновлении инструмента", e);

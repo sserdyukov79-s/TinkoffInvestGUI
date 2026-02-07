@@ -1,145 +1,176 @@
 package com.algotrading.tinkoffinvestgui.service;
 
+import com.algotrading.tinkoffinvestgui.repository.InstrumentsRepository;
 import com.algotrading.tinkoffinvestgui.repository.ParametersRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.*;
+import java.time.DayOfWeek;
+import java.time.Duration;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Планировщик автоматического выставления заявок по расписанию
+ * Планировщик ежедневных операций:
+ * 1. Копирование инструментов на новую дату (DB скрипт)
+ * 2. Расчёт цен покупки/продажи по алгоритму
+ * 3. Выставление заявок
  */
 public class OrdersScheduler {
     private static final Logger log = LoggerFactory.getLogger(OrdersScheduler.class);
 
     private final ParametersRepository parametersRepository;
-    private final ScheduledExecutorService scheduler;
+    private final InstrumentsRepository instrumentsRepository;
+    private final DailyDataPreparationService dataPreparationService;
     private final Runnable ordersTask;
+    private final ScheduledExecutorService scheduler;
 
-    private LocalDate lastExecutionDate = null;
     private volatile boolean isRunning = false;
+    private LocalDate lastExecutionDate = null;
+    private Runnable tableRefreshCallback;
 
-    public OrdersScheduler(ParametersRepository parametersRepository, Runnable ordersTask) {
+    public OrdersScheduler(ParametersRepository parametersRepository,
+                           InstrumentsRepository instrumentsRepository,
+                           Runnable ordersTask, Runnable tableRefreshCallback) {
         this.parametersRepository = parametersRepository;
+        this.instrumentsRepository = instrumentsRepository;
         this.ordersTask = ordersTask;
+        this.dataPreparationService = new DailyDataPreparationService(instrumentsRepository);
         this.scheduler = Executors.newScheduledThreadPool(1);
+        this.tableRefreshCallback = tableRefreshCallback;
     }
 
     /**
-     * Запуск планировщика
+     * Запускает планировщик (проверка каждую минуту)
      */
     public void start() {
         if (isRunning) {
-            log.warn("⚠️ Планировщик уже запущен");
+            log.warn("⚠️  Планировщик уже запущен");
             return;
         }
 
         isRunning = true;
-        log.info("🚀 Запуск планировщика автоматических заявок");
+        log.info("🚀 Планировщик запущен");
 
-        // Проверяем сразу при старте
-        checkAndExecuteOrders();
+        // Выполняем сразу при старте приложения
+        checkAndExecute();
 
-        // Периодическая проверка каждую минуту
+        // Затем проверяем каждую минуту
         scheduler.scheduleAtFixedRate(
-                this::checkAndExecuteOrders,
+                this::checkAndExecute,
                 1, 1, TimeUnit.MINUTES
         );
     }
 
-    /**
-     * Остановка планировщика
-     */
     public void stop() {
-        log.info("🛑 Остановка планировщика автоматических заявок");
+        log.info("🛑 Остановка планировщика");
         isRunning = false;
         scheduler.shutdown();
     }
 
     /**
-     * Проверяет условия и выполняет выставление заявок
+     * Проверяет условия и запускает полный цикл при необходимости
      */
-    private void checkAndExecuteOrders() {
+    private void checkAndExecute() {
         try {
-            // 1. Проверяем, что сегодня будний день
+            // 1. Проверка: рабочий день
             if (!isWeekday()) {
-                log.debug("📅 Сегодня выходной, заявки не выставляем");
+                log.debug("📅 Сегодня выходной, пропускаем");
                 return;
             }
 
-            // 2. Проверяем, что заявки ещё не выставлялись сегодня
+            // 2. Проверка: уже выполнялось сегодня
             LocalDate today = LocalDate.now();
             if (today.equals(lastExecutionDate)) {
-                log.debug("✅ Заявки уже выставлены сегодня");
+                log.debug("✅ Операции уже выполнены сегодня");
                 return;
             }
 
-            // 3. Получаем время начала торгов из БД
-            String startTimeStr = parametersRepository.getParameter("start_time");
+            // 3. Проверка: время старта
+            String startTimeStr = parametersRepository.getParameterValue("starttime");
             if (startTimeStr == null || startTimeStr.isEmpty()) {
-                log.warn("⚠️ Параметр start_time не найден в БД");
+                log.warn("⚠️  Параметр 'starttime' не задан в БД");
                 return;
             }
 
             LocalTime startTime = LocalTime.parse(startTimeStr, DateTimeFormatter.ofPattern("HH:mm:ss"));
             LocalTime now = LocalTime.now();
 
-            // 4. Проверяем, что текущее время >= start_time
+            // 4. Если время ещё не пришло, ждём
             if (now.isBefore(startTime)) {
-                long minutesUntilStart = Duration.between(now, startTime).toMinutes();
-                log.debug("⏰ До начала торгов осталось {} минут (start_time: {})", minutesUntilStart, startTimeStr);
+                long minutesUntil = Duration.between(now, startTime).toMinutes();
+                log.debug("⏰ До времени старта {} осталось {} минут", startTimeStr, minutesUntil);
                 return;
             }
 
-            // 5. Все условия выполнены - выставляем заявки
-            log.info("🎯 Условия выполнены! Выставляем заявки автоматически (start_time: {})", startTimeStr);
-            executeOrders();
+            // 5. Все проверки пройдены — запускаем
+            log.info("🎯 Время пришло! starttime={}", startTimeStr);
+            executeFullCycle();
             lastExecutionDate = today;
 
         } catch (Exception e) {
-            log.error("❌ Ошибка при проверке условий выставления заявок: {}", e.getMessage(), e);
+            log.error("❌ Ошибка в планировщике", e);
         }
     }
 
     /**
-     * Проверяет, является ли сегодня будним днём
+     * Выполняет полный цикл операций в правильном порядке:
+     * 1. Подготовка данных (DB скрипт + расчёт цен)
+     * 2. Выставление заявок
      */
-    private boolean isWeekday() {
-        // ОРИГИНАЛЬНЫЙ КОД (закомментирован) для тестирования:
-         DayOfWeek today = LocalDate.now().getDayOfWeek();
-         return today != DayOfWeek.SATURDAY && today != DayOfWeek.SUNDAY;
-
-        // ⚠️ ДЛЯ ТЕСТИРОВАНИЯ: всегда разрешаем выставление заявок
-       // return true;
-    }
-
-    /**
-     * Выполняет выставление заявок
-     */
-    private void executeOrders() {
+    private void executeFullCycle() {
         try {
-            log.info("📤 Выполняем автоматическое выставление заявок");
+            log.info("═══════════════════════════════════════════════════════");
+            log.info("🔄 ЗАПУСК ПОЛНОГО ЦИКЛА ЕЖЕДНЕВНЫХ ОПЕРАЦИЙ");
+            log.info("═══════════════════════════════════════════════════════");
+
+            // Шаг 1: Подготовка данных (DB скрипт + расчёт цен)
+            log.info("📋 ШАГ 1: Подготовка данных");
+            boolean dataPreparationSuccess = dataPreparationService.prepareDailyData();
+
+            if (!dataPreparationSuccess) {
+                log.error("❌ Ошибка подготовки данных, выставление заявок отменено");
+                return;
+            }
+
+            // ✅ Обновляем таблицу инструментов в GUI
+            if (tableRefreshCallback != null) {
+                tableRefreshCallback.run();
+            }
+
+
+            // Пауза перед выставлением заявок
+            Thread.sleep(2000);
+
+            // Шаг 2: Выставление заявок
+            log.info("═══════════════════════════════════════════════════════");
+            log.info("📤 ШАГ 2: Выставление заявок");
+            log.info("═══════════════════════════════════════════════════════");
+
             ordersTask.run();
-            log.info("✅ Заявки успешно выставлены автоматически");
+
+            log.info("═══════════════════════════════════════════════════════");
+            log.info("✅ ПОЛНЫЙ ЦИКЛ ЗАВЕРШЁН УСПЕШНО");
+            log.info("═══════════════════════════════════════════════════════");
+
         } catch (Exception e) {
-            log.error("❌ Ошибка при выставлении заявок: {}", e.getMessage(), e);
+            log.error("❌ Ошибка при выполнении полного цикла", e);
         }
     }
 
-    /**
-     * Получить дату последнего выполнения
-     */
+    private boolean isWeekday() {
+        DayOfWeek today = LocalDate.now().getDayOfWeek();
+        return today != DayOfWeek.SATURDAY && today != DayOfWeek.SUNDAY;
+    }
+
     public LocalDate getLastExecutionDate() {
         return lastExecutionDate;
     }
 
-    /**
-     * Проверить, запущен ли планировщик
-     */
     public boolean isRunning() {
         return isRunning;
     }
