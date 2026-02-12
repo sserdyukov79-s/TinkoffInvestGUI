@@ -78,7 +78,7 @@ public class OrdersScheduler {
     private void checkAndExecute() {
         try {
             // 1. Проверка: рабочий день
-            if (!isWeekday()) {
+                if (!isWeekday()) {
                 log.debug("📅 Сегодня выходной, пропускаем");
                 return;
             }
@@ -91,9 +91,9 @@ public class OrdersScheduler {
             }
 
             // 3. Проверка: время старта
-            String startTimeStr = parametersRepository.getParameterValue("starttime");
+            String startTimeStr = parametersRepository.getParameterValue("start_time");
             if (startTimeStr == null || startTimeStr.isEmpty()) {
-                log.warn("⚠️  Параметр 'starttime' не задан в БД");
+                log.warn("⚠️  Параметр 'start_time' не задан в БД");
                 return;
             }
 
@@ -141,7 +141,6 @@ public class OrdersScheduler {
             if (tableRefreshCallback != null) {
                 tableRefreshCallback.run();
             }
-
 
             // Пауза перед выставлением заявок
             Thread.sleep(2000);
