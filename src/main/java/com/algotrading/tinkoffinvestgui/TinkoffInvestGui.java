@@ -3,6 +3,7 @@ package com.algotrading.tinkoffinvestgui;
 import com.algotrading.tinkoffinvestgui.config.AppConstants;
 import com.algotrading.tinkoffinvestgui.service.OrdersScheduler;
 import com.algotrading.tinkoffinvestgui.repository.ParametersRepository;
+import com.algotrading.tinkoffinvestgui.repository.InstrumentsRepository;
 import com.algotrading.tinkoffinvestgui.ui.panels.ExportAnalysisPanel;
 import com.algotrading.tinkoffinvestgui.ui.panels.InstrumentsPanel;
 import com.algotrading.tinkoffinvestgui.ui.panels.PortfolioPanel;
@@ -10,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.swing.*;
+import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -84,30 +86,36 @@ public class TinkoffInvestGui extends JFrame {
      * Инициализация планировщика заявок с параметрами из БД (starttime)
      */
     private void initOrdersScheduler() {
-        log.info("🕒 Инициализация планировщика автоматической отправки заявок");
+        log.info("🔧 Инициализация планировщика заявок (starttime)");
 
         ParametersRepository paramsRepo = new ParametersRepository();
+        InstrumentsRepository instrumentsRepo = new InstrumentsRepository();
 
+        // Задача выставления заявок (запускается ПОСЛЕ подготовки данных)
         Runnable ordersTask = () -> {
             try {
-                log.info("📤 Планировщик: начало выполнения отправки заявок из GUI-потока");
-
+                log.info("📤 GUI: Запуск задачи выставления заявок");
                 SwingUtilities.invokeLater(() -> {
                     try {
                         instrumentsPanel.sendOrdersToExchange();
                     } catch (Exception e) {
-                        log.error("❌ Ошибка отправки заявок", e);
+                        log.error("❌ Ошибка выставления заявок", e);
                     }
                 });
             } catch (Exception e) {
-                log.error("❌ Ошибка в задаче планировщика: {}", e.getMessage(), e);
+                log.error("❌ Ошибка при выполнении ordersTask", e);
             }
         };
 
-        ordersScheduler = new OrdersScheduler(paramsRepo, ordersTask);
+        Runnable refreshTableCallback = instrumentsPanel::refreshTable;
+
+        // Создаём планировщик с новой логикой (DB скрипт → расчёт цен → заявки)
+        ordersScheduler = new OrdersScheduler(paramsRepo, instrumentsRepo, ordersTask,refreshTableCallback );
         ordersScheduler.start();
-        log.info("✅ Планировщик инициализирован (1 раз в день)");
+
+        log.info("✅ Планировщик запущен (проверка каждую 1 минуту)");
     }
+
 
     /**
      * Остановка приложения

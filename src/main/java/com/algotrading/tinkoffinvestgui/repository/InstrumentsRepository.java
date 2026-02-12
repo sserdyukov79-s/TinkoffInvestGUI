@@ -110,12 +110,17 @@ public class InstrumentsRepository {
         try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
-  //          pstmt.setDate(1, Date.valueOf(instrument.getBookdate()));
+
             pstmt.setString(1, instrument.getFigi());
             pstmt.setString(2, instrument.getName());
             pstmt.setString(3, instrument.getIsin());
             pstmt.setInt(4, instrument.getPriority());
-            pstmt.setBigDecimal(5, instrument.getBuyPrice());
+
+            if (instrument.getBuyPrice() != null) {
+                pstmt.setBigDecimal(5, instrument.getBuyPrice());
+            } else {
+                pstmt.setNull(5, Types.DECIMAL);
+            }
 
             if (instrument.getBuyQuantity() != null) {
                 pstmt.setInt(6, instrument.getBuyQuantity());
@@ -123,23 +128,39 @@ public class InstrumentsRepository {
                 pstmt.setNull(6, Types.INTEGER);
             }
 
-            pstmt.setBigDecimal(7, instrument.getSellPrice());
+
+            if (instrument.getSellPrice() != null) {
+                pstmt.setBigDecimal(7, instrument.getSellPrice());
+            } else {
+                pstmt.setNull(7, Types.DECIMAL);
+            }
 
             if (instrument.getSellQuantity() != null) {
                 pstmt.setInt(8, instrument.getSellQuantity());
             } else {
                 pstmt.setNull(8, Types.INTEGER);
             }
+            if (instrument.getManualBuyPrice() != null) {
+                pstmt.setBigDecimal(9, instrument.getManualBuyPrice());
+            } else {
+                pstmt.setNull(9, Types.DECIMAL);
+            }
 
-            // ✅ НОВЫЕ ПОЛЯ
-            pstmt.setBigDecimal(9, instrument.getManualBuyPrice());
-            pstmt.setBigDecimal(10, instrument.getManualSellPrice());
+            if (instrument.getManualSellPrice() != null) {
+                pstmt.setBigDecimal(10, instrument.getManualSellPrice());
+            } else {
+                pstmt.setNull(10, Types.DECIMAL);
+            }
+
             pstmt.setInt(11, instrument.getId());
+            pstmt.executeUpdate();
+
+            log.debug("MY manual_buy_price: {} ", pstmt);
 
             log.debug("buy_price: {} (null={})", instrument.getBuyPrice(), instrument.getBuyPrice() == null);
             log.debug("manual_buy_price: {} (null={})", instrument.getManualBuyPrice(), instrument.getManualBuyPrice() == null);
 
-            pstmt.executeUpdate();
+            //   pstmt.executeUpdate();
             log.info("Инструмент обновлён: {}", instrument.getName());
         } catch (SQLException e) {
             log.error("Ошибка при обновлении инструмента", e);
@@ -167,12 +188,6 @@ public class InstrumentsRepository {
     private Instrument mapResultSetToInstrument(ResultSet rs) throws SQLException {
         Instrument instrument = new Instrument();
         instrument.setId(rs.getInt("id"));
-/*
-        Date bookdateDate = rs.getDate("bookdate");
-        if (bookdateDate != null) {
-            instrument.setBookdate(bookdateDate.toLocalDate());
-        }
-*/
         instrument.setFigi(rs.getString("figi"));
         instrument.setName(rs.getString("name"));
         instrument.setIsin(rs.getString("isin"));

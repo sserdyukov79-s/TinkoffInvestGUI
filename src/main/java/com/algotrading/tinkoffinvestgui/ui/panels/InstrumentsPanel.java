@@ -171,6 +171,14 @@ public class InstrumentsPanel extends JPanel {
     }
 
     /**
+     * Публичный метод для обновления таблицы (вызывается из планировщика)
+     */
+    public void refreshTable() {
+        loadInstruments();  // ← Использует уже существующий метод!
+    }
+
+
+    /**
      * Диалог добавления инструмента
      */
     private void showAddInstrumentDialog() {

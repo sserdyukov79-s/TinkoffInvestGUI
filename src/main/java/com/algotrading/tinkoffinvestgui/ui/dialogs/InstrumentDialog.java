@@ -107,12 +107,7 @@ public class InstrumentDialog extends JDialog {
         try {
             Instrument instrument = existingInstrument != null ? existingInstrument : new Instrument();
 
- /*           if (existingInstrument != null) {
-                instrument.setId(existingInstrument.getId());
-            }
-
-            instrument.setBookdate(LocalDate.parse(bookdateField.getText()));
-*/            instrument.setFigi(figiField.getText().isEmpty() ? null : figiField.getText());
+            instrument.setFigi(figiField.getText().isEmpty() ? null : figiField.getText());
             instrument.setName(nameField.getText());
             instrument.setIsin(isinField.getText());
             instrument.setPriority(Integer.parseInt(priorityField.getText()));
@@ -120,7 +115,6 @@ public class InstrumentDialog extends JDialog {
             if (!buyQtyField.getText().isEmpty()) {
                 instrument.setBuyQuantity(Integer.parseInt(buyQtyField.getText()));
             }
-
             if (!buyPriceField.getText().isEmpty()) {
                 instrument.setBuyPrice(new BigDecimal(buyPriceField.getText()));
             }
