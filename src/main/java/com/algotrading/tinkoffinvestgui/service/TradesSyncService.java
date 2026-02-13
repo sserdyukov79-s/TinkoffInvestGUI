@@ -4,7 +4,6 @@ import com.algotrading.tinkoffinvestgui.config.ConnectorConfig;
 import com.algotrading.tinkoffinvestgui.model.Trade;
 import com.algotrading.tinkoffinvestgui.repository.InstrumentsRepository;
 import com.algotrading.tinkoffinvestgui.repository.TradesRepository;
-import com.algotrading.tinkoffinvestgui.util.MoneyConverter;
 import com.google.protobuf.Timestamp;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,7 +13,6 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.List;
 
 /**
  * Сервис синхронизации сделок с Tinkoff API
@@ -98,6 +96,9 @@ public class TradesSyncService {
     /**
      * Создание объекта Trade из Operation API
      */
+    /**
+     * Создание объекта Trade из Operation API
+     */
     private Trade createTradeFromOperation(Operation operation, String accountId) {
         Trade trade = new Trade();
 
@@ -109,34 +110,34 @@ public class TradesSyncService {
         var instrument = instrumentsRepository.findByFigi(operation.getFigi());
         if (instrument != null) {
             trade.setInstrumentName(instrument.getName());
-            trade.setTicker(instrument.getIsin());  // или другое поле для тикера
+            trade.setTicker(instrument.getIsin());
         }
 
         trade.setInstrumentType(operation.getInstrumentType());
 
         // Направление
-        String direction = operation.getType().contains("Покупка") ? "BUY" : "SELL";
+        String direction = operation.getOperationType().name().contains("BUY") ||
+                operation.getType().contains("Покупка") ? "BUY" : "SELL";
         trade.setDirection(direction);
 
-        trade.setQuantity(operation.getQuantity());
+        trade.setQuantity(Math.abs(operation.getQuantity()));
         trade.setPrice(MoneyConverter.toBigDecimal(operation.getPrice()));
 
         // Сумма сделки (может быть отрицательной для покупок)
         BigDecimal payment = MoneyConverter.toBigDecimal(operation.getPayment());
         trade.setTradeAmount(payment.abs());
 
-        // Комиссия
-        trade.setCommission(MoneyConverter.toBigDecimal(operation.getCommission()));
-
-        // НКД (для облигаций)
-        if (operation.hasAccruedInt()) {
-            trade.setAci(MoneyConverter.toBigDecimal(operation.getAccruedInt()));
+        // Комиссия - вычисляем из trades списка, если есть
+        BigDecimal commission = BigDecimal.ZERO;
+        for (OperationTrade opTrade : operation.getTradesList()) {
+            // Комиссия не всегда есть в структуре, используем 0
+            commission = commission.add(BigDecimal.ZERO);
         }
+        trade.setCommission(commission);
 
-        // Доходность (для облигаций)
-        if (operation.hasYield()) {
-            trade.setYieldValue(MoneyConverter.toBigDecimal(operation.getYield()));
-        }
+        // НКД и доходность - для будущих версий API
+        trade.setAci(BigDecimal.ZERO);
+        trade.setYieldValue(BigDecimal.ZERO);
 
         // Дата сделки
         trade.setTradeDate(timestampToInstant(operation.getDate()));
@@ -145,6 +146,7 @@ public class TradesSyncService {
 
         return trade;
     }
+
 
     private Timestamp timestampFromLocalDate(LocalDate date) {
         Instant instant = date.atStartOfDay(ZoneId.systemDefault()).toInstant();

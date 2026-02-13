@@ -91,9 +91,13 @@ public class PortfolioPanel extends JPanel {
         ordersButton = new JButton("Обновить заявки");
         ordersButton.addActionListener(e -> refreshOrders());
 
+        tradesButton = new JButton("Обновить сделки");
+        tradesButton.addActionListener(e -> refreshTrades());
+
         buttonsPanel.add(refreshButton);
         buttonsPanel.add(portfolioButton);
         buttonsPanel.add(ordersButton);
+        buttonsPanel.add(tradesButton);
 
         // Таблицы
         String[] accountColumns = {"ID", "Название", "Тип", "Статус"};
@@ -122,28 +126,15 @@ public class PortfolioPanel extends JPanel {
         tradesTable.setFillsViewportHeight(false);
         TableUtils.addCopyMenu(tradesTable);
 
-        tradesScroll = new JScrollPane(tradesTable);
-        setTablePreferredHeight(tradesScroll, tradesTable, 8);
-
-// В buttonsPanel добавь кнопку:
-        tradesButton = new JButton("Обновить сделки");
-        tradesButton.addActionListener(e -> refreshTrades());
-        buttonsPanel.add(tradesButton);
-
-// В centerPanel после ordersScroll добавь:
-        centerPanel.add(Box.createVerticalStrut(15));
-        JLabel tradesLabel = new JLabel("Сделки (сегодня):");
-        tradesLabel.setFont(new Font("Arial", Font.BOLD, 12));
-        centerPanel.add(tradesLabel);
-        centerPanel.add(tradesScroll);
-
         accountsScroll = new JScrollPane(accountsTable);
         portfolioScroll = new JScrollPane(portfolioTable);
         ordersScroll = new JScrollPane(ordersTable);
+        tradesScroll = new JScrollPane(tradesTable);
 
         setTablePreferredHeight(accountsScroll, accountsTable, 3);
         setTablePreferredHeight(portfolioScroll, portfolioTable, 10);
         setTablePreferredHeight(ordersScroll, ordersTable, 8);
+        setTablePreferredHeight(tradesScroll, tradesTable, 8);
 
         // Верхняя панель
         JPanel topPanel = new JPanel();
@@ -177,9 +168,16 @@ public class PortfolioPanel extends JPanel {
         centerPanel.add(ordersLabel);
         centerPanel.add(ordersScroll);
 
+        centerPanel.add(Box.createVerticalStrut(15));
+        JLabel tradesLabel = new JLabel("Сделки (сегодня):");
+        tradesLabel.setFont(new Font("Arial", Font.BOLD, 12));
+        centerPanel.add(tradesLabel);
+        centerPanel.add(tradesScroll);
+
         add(topPanel, BorderLayout.NORTH);
         add(centerPanel, BorderLayout.CENTER);
     }
+
 
     private void setTablePreferredHeight(JScrollPane scrollPane, JTable table, int visibleRows) {
         int rowHeight = table.getRowHeight();
