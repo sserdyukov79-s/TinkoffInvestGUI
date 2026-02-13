@@ -159,14 +159,20 @@ public class OrdersScheduler {
     private long calculateInitialDelay() {
         LocalTime now = LocalTime.now();
         LocalTime target = dailyExecutionTime;
-
         Duration duration = Duration.between(now, target);
-        if (!duration.isNegative() && !duration.isZero()) {
-            return duration.getSeconds();
-        } else {
-            return duration.plusDays(1).getSeconds();
+
+        if (duration.isNegative()) {
+            // Уже позже времени запуска — выполняем задачу сразу
+            return 0;
         }
+        if (duration.isZero()) {
+            // Запустили ровно в start_time
+            return 0;
+        }
+        // Ещё не дошли до времени запуска — ждём до него
+        return duration.getSeconds();
     }
+
 
     public void setDailyExecutionTime(LocalTime time) {
         this.dailyExecutionTime = time;
