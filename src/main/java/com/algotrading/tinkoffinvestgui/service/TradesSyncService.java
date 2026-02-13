@@ -121,9 +121,7 @@ public class TradesSyncService {
     /**
      * Создание объекта Trade из Operation API
      */
-    /**
-     * Создание объекта Trade из Operation API
-     */
+
     private Trade createTradeFromOperation(Operation operation, String accountId) {
         Trade trade = new Trade();
 
@@ -131,11 +129,21 @@ public class TradesSyncService {
         trade.setAccountId(accountId);
         trade.setFigi(operation.getFigi());
 
-        // Получаем доп. инфо об инструменте из БД
-        var instrument = instrumentsRepository.findByFigi(operation.getFigi());
-        if (instrument != null) {
-            trade.setInstrumentName(instrument.getName());
-            trade.setTicker(instrument.getIsin());
+        // Получаем доп. инфо об инструменте из БД (с защитой от ошибок)
+        try {
+            var instrument = instrumentsRepository.findByFigi(operation.getFigi());
+            if (instrument != null) {
+                trade.setInstrumentName(instrument.getName());
+                trade.setTicker(instrument.getIsin());
+            } else {
+                log.warn("⚠️ Инструмент не найден в БД: {}", operation.getFigi());
+                trade.setInstrumentName(operation.getFigi());
+                trade.setTicker("");
+            }
+        } catch (Exception e) {
+            log.error("❌ Ошибка получения инструмента {}: {}", operation.getFigi(), e.getMessage());
+            trade.setInstrumentName(operation.getFigi());
+            trade.setTicker("");
         }
 
         trade.setInstrumentType(operation.getInstrumentType());
@@ -152,25 +160,41 @@ public class TradesSyncService {
         BigDecimal payment = MoneyConverter.toBigDecimal(operation.getPayment());
         trade.setTradeAmount(payment.abs());
 
-        // Комиссия - вычисляем из trades списка, если есть
-        BigDecimal commission = BigDecimal.ZERO;
-        for (OperationTrade opTrade : operation.getTradesList()) {
-            // Комиссия не всегда есть в структуре, используем 0
-            commission = commission.add(BigDecimal.ZERO);
+        // ✅ КОМИССИЯ из поля commission
+        if (operation.hasCommission()) {
+            BigDecimal commission = MoneyConverter.toBigDecimal(operation.getCommission());
+            trade.setCommission(commission.abs());
+            log.debug("💰 Комиссия: {}", commission);
+        } else {
+            trade.setCommission(BigDecimal.ZERO);
+            log.debug("⚠️ Комиссия отсутствует в операции");
         }
-        trade.setCommission(commission);
 
-        // НКД и доходность - для будущих версий API
-        trade.setAci(BigDecimal.ZERO);
-        trade.setYieldValue(BigDecimal.ZERO);
+        // ✅ НКД (Accumulated Coupon Income) для облигаций
+        if (operation.hasAccruedInt()) {
+            BigDecimal aci = MoneyConverter.toBigDecimal(operation.getAccruedInt());
+            trade.setAci(aci);
+            log.debug("📊 НКД: {}", aci);
+        } else {
+            trade.setAci(BigDecimal.ZERO);
+        }
+
+        // ✅ Доходность (если есть)
+        if (operation.hasYield()) {
+            BigDecimal yieldValue = MoneyConverter.toBigDecimal(operation.getYield());
+            trade.setYieldValue(yieldValue);
+            log.debug("📈 Доходность: {}", yieldValue);
+        } else {
+            trade.setYieldValue(BigDecimal.ZERO);
+        }
 
         // Дата сделки
         trade.setTradeDate(timestampToInstant(operation.getDate()));
-
         trade.setCurrency(operation.getCurrency());
 
         return trade;
     }
+
 
 
     private Timestamp timestampFromLocalDate(LocalDate date) {
