@@ -51,8 +51,9 @@ public class OrdersRepository {
                     parent_order_id,
                     parent_fill_time,
                     error_message,
-                    created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    created_at,
+                    submitted_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """;
 
         try (Connection conn = getConnection();
@@ -87,6 +88,12 @@ public class OrdersRepository {
             Instant createdAt = order.getCreatedAt() != null ? order.getCreatedAt() : Instant.now();
             pstmt.setTimestamp(20, Timestamp.from(createdAt));
 
+            if (order.getSubmittedAt() != null) {
+                pstmt.setTimestamp(21, Timestamp.from(order.getSubmittedAt()));
+            } else {
+                pstmt.setTimestamp(21, null);
+            }
+
             pstmt.executeUpdate();
             log.info("Заявка сохранена: {} ({})", order.getMyOrderId(), order.getDirection());
         } catch (SQLException e) {
@@ -100,25 +107,26 @@ public class OrdersRepository {
      */
     public void update(Order order) {
         String sql = """
-                UPDATE public.orders SET
-                    exchange_order_id = ?,
-                    lots_executed = ?,
-                    average_execution_price = ?,
-                    status = ?,
-                    total_order_amount = ?,
-                    commission = ?,
-                    error_message = ?,
-                    executed_at = CASE
-                        WHEN status = 'FILLED' AND executed_at IS NULL THEN now()
-                        ELSE executed_at
-                    END,
-                    cancelled_at = CASE
-                        WHEN status = 'CANCELLED' AND cancelled_at IS NULL THEN now()
-                        ELSE cancelled_at
-                    END,
-                    updated_at = now()
-                WHERE my_order_id = ?
-                """;
+            UPDATE public.orders SET
+                exchange_order_id = ?,
+                lots_executed = ?,
+                average_execution_price = ?,
+                status = ?,
+                total_order_amount = ?,
+                commission = ?,
+                error_message = ?,
+                submitted_at = ?,
+                executed_at = CASE
+                    WHEN status = 'FILLED' AND executed_at IS NULL THEN now()
+                    ELSE executed_at
+                END,
+                cancelled_at = CASE
+                    WHEN status = 'CANCELLED' AND cancelled_at IS NULL THEN now()
+                    ELSE cancelled_at
+                END,
+                updated_at = now()
+            WHERE my_order_id = ?
+            """;
 
         try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
@@ -130,7 +138,15 @@ public class OrdersRepository {
             pstmt.setBigDecimal(5, order.getTotalOrderAmount());
             pstmt.setBigDecimal(6, order.getCommission());
             pstmt.setString(7, order.getErrorMessage());
-            pstmt.setString(8, order.getMyOrderId());
+
+            // >>> ДОБАВЛЯЕМ submitted_at
+            if (order.getSubmittedAt() != null) {
+                pstmt.setTimestamp(8, Timestamp.from(order.getSubmittedAt()));
+            } else {
+                pstmt.setTimestamp(8, null);
+            }
+
+            pstmt.setString(9, order.getMyOrderId());
 
             pstmt.executeUpdate();
             log.debug("Заявка обновлена: {} статус={}", order.getMyOrderId(), order.getStatus());
@@ -139,6 +155,7 @@ public class OrdersRepository {
             throw new RuntimeException("Ошибка БД при обновлении заявки: " + e.getMessage(), e);
         }
     }
+
 
     public Order findByMyOrderId(String myOrderId) {
         String sql = "SELECT * FROM public.orders WHERE my_order_id = ?";
@@ -291,6 +308,69 @@ public class OrdersRepository {
         }
         return orders;
     }
+    /**
+     * Заявки, созданные сегодня (с начала текущего дня).
+     */
+    public List<Order> findTodayOrders() {
+        String sql = """
+            SELECT * FROM public.orders
+            WHERE created_at::date = CURRENT_DATE
+            ORDER BY created_at DESC
+            """;
+
+        List<Order> orders = new ArrayList<>();
+        try (Connection conn = getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+
+            while (rs.next()) {
+                orders.add(mapResultSetToOrder(rs));
+            }
+            log.debug("Найдено заявок за сегодня: {}", orders.size());
+        } catch (SQLException e) {
+            log.error("Ошибка получения сегодняшних заявок", e);
+        }
+        return orders;
+    }
+
+    /**
+     * Проверка: есть ли сегодня активная заявка по FIGI + direction.
+     */
+    public boolean hasActiveTodayOrder(String figi, String direction) {
+        String sql = """
+                SELECT COUNT(*) FROM public.orders
+                WHERE figi = ?
+                  AND direction = ?
+                  AND status IN (
+                      'PENDING',
+                      'NEW',
+                      'PARTIALLY_FILLED',
+                      'EXECUTION_REPORT_STATUS_NEW',
+                      'EXECUTION_REPORT_STATUS_PARTIALLYFILL'
+                  )
+                  AND created_at::date = CURRENT_DATE
+                """;
+
+        try (Connection conn = getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            pstmt.setString(1, figi);
+            pstmt.setString(2, direction);
+
+            try (ResultSet rs = pstmt.executeQuery()) {
+                if (rs.next()) {
+                    int count = rs.getInt(1);
+                    if (count > 0) {
+                        log.debug("Найдены {} активных заявок сегодня по figi={} direction={}", count, figi, direction);
+                        return true;
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            log.error("Ошибка проверки активных заявок по figi/ direction", e);
+        }
+        return false;
+    }
 
     private Order mapResultSetToOrder(ResultSet rs) throws SQLException {
         Order order = new Order();
@@ -348,6 +428,16 @@ public class OrdersRepository {
         Timestamp cancelledAt = rs.getTimestamp("cancelled_at");
         if (cancelledAt != null) {
             order.setCancelledAt(cancelledAt.toInstant());
+        }
+
+        Timestamp submittedAt = null;
+        try {
+            submittedAt = rs.getTimestamp("submitted_at");
+        } catch (SQLException ignored) {
+            // Для старых БД без этого поля
+        }
+        if (submittedAt != null) {
+            order.setSubmittedAt(submittedAt.toInstant());
         }
 
         return order;

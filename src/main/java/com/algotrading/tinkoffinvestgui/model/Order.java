@@ -45,6 +45,7 @@ public class Order {
     private Instant updatedAt;
     private Instant executedAt;
     private Instant cancelledAt;
+    private Instant submittedAt;  // <<<< НОВОЕ ПОЛЕ
 
     private String currency;
 
@@ -104,6 +105,7 @@ public class Order {
     public Instant getUpdatedAt() { return updatedAt; }
     public Instant getExecutedAt() { return executedAt; }
     public Instant getCancelledAt() { return cancelledAt; }
+    public Instant getSubmittedAt() { return submittedAt; }  // <<<< НОВЫЙ GETTER
 
     public String getCurrency() { return currency; }
 
@@ -154,6 +156,7 @@ public class Order {
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
     public void setExecutedAt(Instant executedAt) { this.executedAt = executedAt; }
     public void setCancelledAt(Instant cancelledAt) { this.cancelledAt = cancelledAt; }
+    public void setSubmittedAt(Instant submittedAt) { this.submittedAt = submittedAt; }  // <<<< НОВЫЙ SETTER
 
     public void setCurrency(String currency) { this.currency = currency; }
 

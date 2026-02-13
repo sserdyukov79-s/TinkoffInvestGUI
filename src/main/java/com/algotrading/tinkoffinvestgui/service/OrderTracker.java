@@ -157,6 +157,7 @@ public class OrderTracker {
 
                 sellOrder.setExchangeOrderId(response.getOrderId());
                 sellOrder.setStatus(response.getExecutionReportStatus().name());
+                sellOrder.setSubmittedAt(Instant.now());
                 ordersRepository.update(sellOrder);
 
                 log.info("SELL заявка выставлена на бирже: exchangeOrderId={}", response.getOrderId());

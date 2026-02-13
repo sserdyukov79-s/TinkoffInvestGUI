@@ -2,6 +2,7 @@ package com.algotrading.tinkoffinvestgui;
 
 import com.algotrading.tinkoffinvestgui.config.AppConstants;
 import com.algotrading.tinkoffinvestgui.service.OrdersScheduler;
+import com.algotrading.tinkoffinvestgui.service.OrdersStartupService;
 import com.algotrading.tinkoffinvestgui.repository.ParametersRepository;
 import com.algotrading.tinkoffinvestgui.repository.InstrumentsRepository;
 import com.algotrading.tinkoffinvestgui.repository.OrdersRepository;
@@ -79,6 +80,14 @@ public class TinkoffInvestGui extends JFrame {
         portfolioPanel.startAutoUpdate();
         instrumentsPanel.loadInstruments();
         portfolioPanel.updateAccountsAndPortfolio();
+
+        // 🔄 Синхронизация активных заявок из API в БД при старте
+        try {
+            new OrdersStartupService().syncActiveOrdersOnStartup();
+        } catch (Exception e) {
+            log.error("Ошибка синхронизации заявок при старте", e);
+        }
+
         initOrdersScheduler();
         log.info("✅ GUI инициализирован");
     }
