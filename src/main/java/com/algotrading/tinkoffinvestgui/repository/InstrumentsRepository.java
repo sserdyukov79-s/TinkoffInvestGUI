@@ -255,4 +255,36 @@ public class InstrumentsRepository {
             throw new RuntimeException("Ошибка БД: " + e.getMessage(), e);
         }
     }
+
+    public Instrument findByFigi(String figi) {
+        log.debug("Поиск инструмента по FIGI: {}", figi);
+
+        String sql = "SELECT id, figi, name, isin, priority, buyprice, buyquantity, " +
+                "sellprice, sellquantity, manualbuyprice, manualsellprice " +
+                "FROM public.instruments " +
+                "WHERE figi = ? " +
+                "ORDER BY bookdate DESC " +
+                "LIMIT 1";
+
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setString(1, figi);
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    Instrument instrument = mapResultSetToInstrument(rs);
+                    log.debug("Найден инструмент по FIGI {}: {}", figi, instrument.getName());
+                    return instrument;
+                } else {
+                    log.warn("Инструмент с FIGI {} не найден", figi);
+                    return null;
+                }
+            }
+        } catch (SQLException e) {
+            log.error("Ошибка при поиске инструмента по FIGI {}", figi, e);
+            throw new RuntimeException(e.getMessage(), e);
+        }
+    }
+
 }
