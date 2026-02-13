@@ -41,7 +41,7 @@ public class TradesSyncService {
      * Синхронизация сделок за период
      */
     public void syncTradesForPeriod(String accountId, LocalDate from, LocalDate to) {
-        log.info("🔄 Синхронизация сделок с {} по {}", from, to);
+        log.info("🔄 Синхронизация сделок с {} по {} для счёта {}", from, to, accountId);
 
         TinkoffApiService apiService = new TinkoffApiService(
                 ConnectorConfig.getApiToken(),
@@ -50,10 +50,17 @@ public class TradesSyncService {
 
         try {
             // Запрос сделок через Operations API
+            Timestamp fromTs = timestampFromLocalDate(from);
+            Timestamp toTs = timestampFromLocalDate(to.plusDays(1));
+
+            log.info("📅 Период запроса: {} - {}",
+                    Instant.ofEpochSecond(fromTs.getSeconds()),
+                    Instant.ofEpochSecond(toTs.getSeconds()));
+
             OperationsRequest request = OperationsRequest.newBuilder()
                     .setAccountId(accountId)
-                    .setFrom(timestampFromLocalDate(from))
-                    .setTo(timestampFromLocalDate(to.plusDays(1)))  // +1 день чтобы включить конец периода
+                    .setFrom(fromTs)
+                    .setTo(toTs)
                     .setState(OperationState.OPERATION_STATE_EXECUTED)
                     .build();
 
@@ -62,15 +69,24 @@ public class TradesSyncService {
 
             OperationsResponse response = stub.getOperations(request);
 
+            log.info("📦 Получено операций от API: {}", response.getOperationsCount());
+
             int newTrades = 0;
             int updatedTrades = 0;
+            int skippedTrades = 0;
 
             for (Operation operation : response.getOperationsList()) {
+                log.debug("📋 Операция: type='{}', id='{}', figi='{}', quantity={}",
+                        operation.getType(), operation.getId(), operation.getFigi(), operation.getQuantity());
+
                 // Обрабатываем только сделки (не дивиденды, купоны и пр.)
-                if (operation.getType().equals("Покупка") ||
-                        operation.getType().equals("Продажа") ||
-                        operation.getType().equals("Покупка ЦБ") ||
-                        operation.getType().equals("Продажа ЦБ")) {
+                if (operation.getType().contains("Покупка") ||
+                        operation.getType().contains("Продажа") ||
+                        operation.getType().contains("Buy") ||
+                        operation.getType().contains("Sell")) {
+
+                    log.info("✅ Обрабатываем сделку: {} {} (ID: {})",
+                            operation.getType(), operation.getFigi(), operation.getId());
 
                     Trade existingTrade = tradesRepository.findByTradeId(operation.getId());
 
@@ -79,20 +95,28 @@ public class TradesSyncService {
 
                     if (existingTrade == null) {
                         newTrades++;
+                        log.info("➕ Новая сделка добавлена: {}", operation.getId());
                     } else {
                         updatedTrades++;
+                        log.info("🔄 Сделка обновлена: {}", operation.getId());
                     }
+                } else {
+                    skippedTrades++;
+                    log.debug("⏭️ Пропускаем операцию типа: {}", operation.getType());
                 }
             }
 
-            log.info("✅ Синхронизация завершена: новых={}, обновлено={}", newTrades, updatedTrades);
+            log.info("✅ Синхронизация завершена: новых={}, обновлено={}, пропущено={}",
+                    newTrades, updatedTrades, skippedTrades);
 
         } catch (Exception e) {
-            log.error("Ошибка синхронизации сделок через API", e);
+            log.error("❌ Ошибка синхронизации сделок через API", e);
+            throw new RuntimeException("Ошибка синхронизации сделок: " + e.getMessage(), e);
         } finally {
             apiService.close();
         }
     }
+
 
     /**
      * Создание объекта Trade из Operation API
