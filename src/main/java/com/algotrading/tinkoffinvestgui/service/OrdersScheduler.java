@@ -1,6 +1,7 @@
 package com.algotrading.tinkoffinvestgui.service;
 
 import com.algotrading.tinkoffinvestgui.repository.InstrumentsRepository;
+import com.algotrading.tinkoffinvestgui.repository.OrdersRepository;
 import com.algotrading.tinkoffinvestgui.repository.ParametersRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,23 +10,24 @@ import java.time.DayOfWeek;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.time.format.DateTimeFormatter;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Планировщик ежедневных операций:
- * 1. Копирование инструментов на новую дату (DB скрипт)
- * 2. Расчёт цен покупки/продажи по алгоритму
- * 3. Выставление заявок
+ * Планировщик:
+ * 1) Ежедневно в заданное время запускает подготовку данных и выставление BUY-заявок.
+ * 2) В фоне каждые N секунд запускает OrderTracker для отслеживания статусов и Stop-on-Fill.
  */
 public class OrdersScheduler {
+
     private static final Logger log = LoggerFactory.getLogger(OrdersScheduler.class);
 
     private final ParametersRepository parametersRepository;
     private final InstrumentsRepository instrumentsRepository;
+    private final OrdersRepository ordersRepository;
     private final DailyDataPreparationService dataPreparationService;
+    private final OrderTracker orderTracker;
     private final Runnable ordersTask;
     private final ScheduledExecutorService scheduler;
 
@@ -33,144 +35,193 @@ public class OrdersScheduler {
     private LocalDate lastExecutionDate = null;
     private Runnable tableRefreshCallback;
 
+    private LocalTime dailyExecutionTime = LocalTime.of(9, 0);
+    private int orderCheckIntervalSeconds = 5;
+
     public OrdersScheduler(ParametersRepository parametersRepository,
                            InstrumentsRepository instrumentsRepository,
-                           Runnable ordersTask, Runnable tableRefreshCallback) {
+                           OrdersRepository ordersRepository,
+                           Runnable ordersTask,
+                           Runnable tableRefreshCallback) {
+
         this.parametersRepository = parametersRepository;
         this.instrumentsRepository = instrumentsRepository;
+        this.ordersRepository = ordersRepository;
         this.ordersTask = ordersTask;
-        this.dataPreparationService = new DailyDataPreparationService(instrumentsRepository);
-        this.scheduler = Executors.newScheduledThreadPool(1);
         this.tableRefreshCallback = tableRefreshCallback;
+
+        this.dataPreparationService = new DailyDataPreparationService(instrumentsRepository);
+        this.scheduler = Executors.newScheduledThreadPool(2);
+
+        String accountId = getActiveAccountId();
+        this.orderTracker = new OrderTracker(ordersRepository, instrumentsRepository, accountId);
+
+        log.info("OrdersScheduler инициализирован с OrderTracker для аккаунта {}", accountId);
     }
 
-    /**
-     * Запускает планировщик (проверка каждую минуту)
-     */
     public void start() {
         if (isRunning) {
-            log.warn("⚠️  Планировщик уже запущен");
+            log.warn("OrdersScheduler уже запущен");
             return;
         }
 
         isRunning = true;
-        log.info("🚀 Планировщик запущен");
 
-        // Выполняем сразу при старте приложения
-        checkAndExecute();
+        log.info("Запуск OrdersScheduler. Ежедневное время: {}, интервал проверки заявок: {} сек",
+                dailyExecutionTime, orderCheckIntervalSeconds);
 
-        // Затем проверяем каждую минуту
+        scheduleDailyTask();
+        scheduleOrderMonitoring();
+    }
+
+    private void scheduleDailyTask() {
+        long initialDelay = calculateInitialDelay();
+
+        log.info("Ежедневная задача запланирована на {} (через {} сек)",
+                dailyExecutionTime, initialDelay);
+
         scheduler.scheduleAtFixedRate(
-                this::checkAndExecute,
-                1, 1, TimeUnit.MINUTES
+                () -> {
+                    try {
+                        executeDailyTask();
+                    } catch (Exception e) {
+                        log.error("Ошибка в ежедневной задаче", e);
+                    }
+                },
+                initialDelay,
+                TimeUnit.DAYS.toSeconds(1),
+                TimeUnit.SECONDS
         );
     }
 
-    public void stop() {
-        log.info("🛑 Остановка планировщика");
-        isRunning = false;
-        scheduler.shutdown();
+    private void scheduleOrderMonitoring() {
+        log.info("Мониторинг заявок запланирован: каждые {} сек", orderCheckIntervalSeconds);
+
+        scheduler.scheduleAtFixedRate(
+                () -> {
+                    try {
+                        orderTracker.checkAndProcessPendingOrders();
+                    } catch (Exception e) {
+                        log.error("Ошибка мониторинга заявок", e);
+                    }
+                },
+                5,
+                orderCheckIntervalSeconds,
+                TimeUnit.SECONDS
+        );
     }
 
-    /**
-     * Проверяет условия и запускает полный цикл при необходимости
-     */
-    private void checkAndExecute() {
+    private void executeDailyTask() {
+        LocalDate today = LocalDate.now();
+
+        if (!isTradeDay(today)) {
+            log.info("Сегодня не торговый день, ежедневная задача пропущена");
+            return;
+        }
+
+        if (lastExecutionDate != null && lastExecutionDate.equals(today)) {
+            log.debug("Ежедневная задача уже выполнена сегодня");
+            return;
+        }
+
+        log.info("Начало ежедневной задачи: {}", LocalTime.now());
+
         try {
-            // 1. Проверка: рабочий день
-                if (!isWeekday()) {
-                log.debug("📅 Сегодня выходной, пропускаем");
+            log.info("Шаг 1: подготовка дневных данных (копирование инструментов, расчёт цен)");
+            boolean prepared = dataPreparationService.prepareDailyData();
+
+            if (!prepared) {
+                log.warn("Подготовка данных не завершилась успешно, заявки не будут выставлены");
                 return;
             }
 
-            // 2. Проверка: уже выполнялось сегодня
-            LocalDate today = LocalDate.now();
-            if (today.equals(lastExecutionDate)) {
-                log.debug("✅ Операции уже выполнены сегодня");
-                return;
-            }
+            log.info("Шаг 2: выставление BUY-заявок");
+            ordersTask.run();
+            log.info("BUY-заявки отправлены");
 
-            // 3. Проверка: время старта
-            String startTimeStr = parametersRepository.getParameterValue("start_time");
-            if (startTimeStr == null || startTimeStr.isEmpty()) {
-                log.warn("⚠️  Параметр 'start_time' не задан в БД");
-                return;
-            }
-
-            LocalTime startTime = LocalTime.parse(startTimeStr, DateTimeFormatter.ofPattern("HH:mm:ss"));
-            LocalTime now = LocalTime.now();
-
-            // 4. Если время ещё не пришло, ждём
-            if (now.isBefore(startTime)) {
-                long minutesUntil = Duration.between(now, startTime).toMinutes();
-                log.debug("⏰ До времени старта {} осталось {} минут", startTimeStr, minutesUntil);
-                return;
-            }
-
-            // 5. Все проверки пройдены — запускаем
-            log.info("🎯 Время пришло! starttime={}", startTimeStr);
-            executeFullCycle();
             lastExecutionDate = today;
 
-        } catch (Exception e) {
-            log.error("❌ Ошибка в планировщике", e);
-        }
-    }
-
-    /**
-     * Выполняет полный цикл операций в правильном порядке:
-     * 1. Подготовка данных (DB скрипт + расчёт цен)
-     * 2. Выставление заявок
-     */
-    private void executeFullCycle() {
-        try {
-            log.info("═══════════════════════════════════════════════════════");
-            log.info("🔄 ЗАПУСК ПОЛНОГО ЦИКЛА ЕЖЕДНЕВНЫХ ОПЕРАЦИЙ");
-            log.info("═══════════════════════════════════════════════════════");
-
-            // Шаг 1: Подготовка данных (DB скрипт + расчёт цен)
-            log.info("📋 ШАГ 1: Подготовка данных");
-            boolean dataPreparationSuccess = dataPreparationService.prepareDailyData();
-
-            if (!dataPreparationSuccess) {
-                log.error("❌ Ошибка подготовки данных, выставление заявок отменено");
-                return;
-            }
-
-            // ✅ Обновляем таблицу инструментов в GUI
             if (tableRefreshCallback != null) {
                 tableRefreshCallback.run();
             }
 
-            // Пауза перед выставлением заявок
-            Thread.sleep(2000);
-
-            // Шаг 2: Выставление заявок
-            log.info("═══════════════════════════════════════════════════════");
-            log.info("📤 ШАГ 2: Выставление заявок");
-            log.info("═══════════════════════════════════════════════════════");
-
-            ordersTask.run();
-
-            log.info("═══════════════════════════════════════════════════════");
-            log.info("✅ ПОЛНЫЙ ЦИКЛ ЗАВЕРШЁН УСПЕШНО");
-            log.info("═══════════════════════════════════════════════════════");
-
+            log.info("Ежедневная задача завершена успешно");
         } catch (Exception e) {
-            log.error("❌ Ошибка при выполнении полного цикла", e);
+            log.error("Ошибка при выполнении ежедневной задачи", e);
         }
     }
 
-    private boolean isWeekday() {
-        DayOfWeek today = LocalDate.now().getDayOfWeek();
-        return today != DayOfWeek.SATURDAY && today != DayOfWeek.SUNDAY;
+    private boolean isTradeDay(LocalDate date) {
+        DayOfWeek day = date.getDayOfWeek();
+        return day != DayOfWeek.SATURDAY && day != DayOfWeek.SUNDAY;
     }
 
-    public LocalDate getLastExecutionDate() {
-        return lastExecutionDate;
+    private long calculateInitialDelay() {
+        LocalTime now = LocalTime.now();
+        LocalTime target = dailyExecutionTime;
+
+        Duration duration = Duration.between(now, target);
+        if (!duration.isNegative() && !duration.isZero()) {
+            return duration.getSeconds();
+        } else {
+            return duration.plusDays(1).getSeconds();
+        }
+    }
+
+    public void setDailyExecutionTime(LocalTime time) {
+        this.dailyExecutionTime = time;
+        log.info("Время ежедневного выполнения установлено: {}", time);
+    }
+
+    public void setOrderCheckInterval(int seconds) {
+        this.orderCheckIntervalSeconds = seconds;
+        log.info("Интервал проверки заявок установлен: {} сек", seconds);
+    }
+
+    private String getActiveAccountId() {
+        try {
+            return AccountService.getActiveAccountId();
+        } catch (Exception e) {
+            log.error("Ошибка получения активного Account ID, используется заглушка", e);
+            return "default_account";
+        }
+    }
+
+    public void stop() {
+        if (!isRunning) {
+            log.warn("OrdersScheduler не запущен");
+            return;
+        }
+
+        log.info("Остановка OrdersScheduler...");
+
+        try {
+            scheduler.shutdownNow();
+            orderTracker.shutdown();
+
+            if (!scheduler.awaitTermination(10, TimeUnit.SECONDS)) {
+                log.warn("Scheduler не успел корректно остановиться");
+            }
+
+            isRunning = false;
+            log.info("OrdersScheduler остановлен");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("Ошибка остановки Scheduler'а", e);
+        }
     }
 
     public boolean isRunning() {
         return isRunning;
+    }
+
+    @Override
+    public String toString() {
+        return String.format(
+                "OrdersScheduler{status=%s, dailyTime=%s, orderCheckInterval=%ds}",
+                isRunning ? "RUNNING" : "STOPPED",
+                dailyExecutionTime,
+                orderCheckIntervalSeconds
+        );
     }
 }

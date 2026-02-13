@@ -27,6 +27,7 @@ public class OrdersService {
     private final String token;
     private final String apiUrl;
     private final int apiPort;
+
     private OrdersServiceGrpc.OrdersServiceBlockingStub ordersStub;
     private ManagedChannel channel;
 
@@ -40,7 +41,6 @@ public class OrdersService {
     private void initializeChannel() {
         try {
             log.debug("Инициализация gRPC канала для Orders API: {}:{}", apiUrl, apiPort);
-
             channel = ManagedChannelBuilder
                     .forAddress(apiUrl, apiPort)
                     .useTransportSecurity()
@@ -50,7 +50,6 @@ public class OrdersService {
                     .withCallCredentials(new BearerTokenCallCredentials(token));
 
             log.info("✅ gRPC канал для Orders API успешно инициализирован");
-
         } catch (Exception e) {
             log.error("❌ Ошибка инициализации gRPC канала для Orders API", e);
             throw new RuntimeException("Не удалось подключиться к Orders API", e);
@@ -96,7 +95,6 @@ public class OrdersService {
             log.info("════════════════════════════════════════════════════════════\n");
 
             return response;
-
         } catch (Exception e) {
             log.error("❌ Ошибка отправки заявки на ПОКУПКУ", e);
             throw new RuntimeException("Не удалось отправить заявку на покупку: " + e.getMessage(), e);
@@ -142,7 +140,6 @@ public class OrdersService {
             log.info("════════════════════════════════════════════════════════════\n");
 
             return response;
-
         } catch (Exception e) {
             log.error("❌ Ошибка отправки заявки на ПРОДАЖУ", e);
             throw new RuntimeException("Не удалось отправить заявку на продажу: " + e.getMessage(), e);
@@ -154,9 +151,7 @@ public class OrdersService {
      */
     private PostOrderRequest buildOrderRequest(String accountId, String figi, int quantity,
                                                BigDecimal price, OrderDirection direction) {
-
         String orderId = generateOrderId();
-
         Quotation priceQuotation = buildQuotation(price);
 
         return PostOrderRequest.newBuilder()
@@ -206,19 +201,39 @@ public class OrdersService {
      */
     private void logPostOrderRequestJson(PostOrderRequest request, String orderType) {
         try {
-            // Конвертируем Protobuf в JSON с красивым форматированием
             String json = JsonFormat.printer()
                     .includingDefaultValueFields()
                     .print(request);
 
-            // Компактный многострочный формат
             log.info("📤 Полный JSON запрос на {} заявку:\n{}", orderType, json);
-
         } catch (Exception e) {
             log.error("Ошибка форматирования JSON для PostOrderRequest", e);
         }
     }
 
+    /**
+     * Получить статус торгового поручения из Orders API
+     */
+    public OrderState getOrderState(String accountId, String orderId) {
+        log.info("Tinkoff Orders API: getOrderState, accountId={}, orderId={}", accountId, orderId);
+        GetOrderStateRequest request = GetOrderStateRequest.newBuilder()
+                .setAccountId(accountId)
+                .setOrderId(orderId)
+                .build();
+        return ordersStub.getOrderState(request);
+    }
+
+    /**
+     * Отменить торговое поручение через Orders API
+     */
+    public void cancelOrder(String accountId, String orderId) {
+        log.info("Tinkoff Orders API: cancelOrder, accountId={}, orderId={}", accountId, orderId);
+        CancelOrderRequest request = CancelOrderRequest.newBuilder()
+                .setAccountId(accountId)
+                .setOrderId(orderId)
+                .build();
+        ordersStub.cancelOrder(request);
+    }
 
     /**
      * ✅ Создаёт JSON представление заявок для предпросмотра
@@ -241,7 +256,6 @@ public class OrdersService {
                 buyOrder.put("orderType", "ORDER_TYPE_LIMIT");
                 buyOrder.put("orderId", "ORDER_" + System.currentTimeMillis() + "_BUY_" + instrument.getId());
                 buyOrder.put("instrumentName", instrument.getName());
-
                 orders.add(buyOrder);
             }
 
@@ -259,7 +273,6 @@ public class OrdersService {
                 sellOrder.put("orderType", "ORDER_TYPE_LIMIT");
                 sellOrder.put("orderId", "ORDER_" + System.currentTimeMillis() + "_SELL_" + instrument.getId());
                 sellOrder.put("instrumentName", instrument.getName());
-
                 orders.add(sellOrder);
             }
         }

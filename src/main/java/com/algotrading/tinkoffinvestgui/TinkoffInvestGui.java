@@ -4,6 +4,7 @@ import com.algotrading.tinkoffinvestgui.config.AppConstants;
 import com.algotrading.tinkoffinvestgui.service.OrdersScheduler;
 import com.algotrading.tinkoffinvestgui.repository.ParametersRepository;
 import com.algotrading.tinkoffinvestgui.repository.InstrumentsRepository;
+import com.algotrading.tinkoffinvestgui.repository.OrdersRepository;
 import com.algotrading.tinkoffinvestgui.ui.panels.ExportAnalysisPanel;
 import com.algotrading.tinkoffinvestgui.ui.panels.InstrumentsPanel;
 import com.algotrading.tinkoffinvestgui.ui.panels.PortfolioPanel;
@@ -34,7 +35,7 @@ public class TinkoffInvestGui extends JFrame {
     private OrdersScheduler ordersScheduler;
 
     public TinkoffInvestGui() {
-        log.info("🚀 Инициализация Tinkoff Invest GUI");
+        log.info("🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀 Инициализация Tinkoff Invest GUI 🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀");
         initializeUI();
         startServices();
     }
@@ -90,6 +91,7 @@ public class TinkoffInvestGui extends JFrame {
 
         ParametersRepository paramsRepo = new ParametersRepository();
         InstrumentsRepository instrumentsRepo = new InstrumentsRepository();
+        OrdersRepository ordersRepo = new OrdersRepository();
 
         // Задача выставления заявок (запускается ПОСЛЕ подготовки данных)
         Runnable ordersTask = () -> {
@@ -110,7 +112,7 @@ public class TinkoffInvestGui extends JFrame {
         Runnable refreshTableCallback = instrumentsPanel::refreshTable;
 
         // Создаём планировщик с новой логикой (DB скрипт → расчёт цен → заявки)
-        ordersScheduler = new OrdersScheduler(paramsRepo, instrumentsRepo, ordersTask,refreshTableCallback );
+        ordersScheduler = new OrdersScheduler(paramsRepo, instrumentsRepo, ordersRepo, ordersTask,refreshTableCallback );
         ordersScheduler.start();
 
         log.info("✅ Планировщик запущен (проверка каждую 1 минуту)");

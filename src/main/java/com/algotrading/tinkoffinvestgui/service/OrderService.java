@@ -12,12 +12,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Сервис для работы с заявками
- * ✅ ВСЕ МЕТОДЫ РАБОТАЮТ + НОВЫЙ createOrdersJson() для UI
+ * Сервис для работы с заявками (слой для GUI поверх TinkoffApiService)
  */
 public class OrderService {
 
     private static final Logger log = LoggerFactory.getLogger(OrderService.class);
+
     private final TinkoffApiService apiService;
 
     public OrderService(TinkoffApiService apiService) {
@@ -29,6 +29,7 @@ public class OrderService {
      */
     public List<Order> fetchOrders() {
         log.info("📥 Получение списка заявок из API");
+
         List<OrderState> apiOrders = apiService.getOrders();
         List<Order> orders = new ArrayList<>();
 
@@ -43,7 +44,6 @@ public class OrderService {
                     .executionReportStatus(apiOrder.getExecutionReportStatus())
                     .currency(apiOrder.getCurrency())
                     .build();
-
             orders.add(order);
         }
 
@@ -71,16 +71,14 @@ public class OrderService {
     }
 
     /**
-     * Отменить заявку
+     * Отменить заявку по биржевому ID (вызывается из GUI-контроллера)
      */
     public void cancelOrder(String orderId) {
-        log.info("❌ Отмена заявки: ID={}", orderId);
         apiService.cancelOrder(orderId);
-        log.info("✅ Заявка отменена: ID={}", orderId);
     }
 
     /**
-     * Получить активные заявки (исполняются/новые)
+     * Получить активные заявки (NEW / PARTIALLYFILL и т.п.)
      */
     public List<Order> fetchActiveOrders() {
         List<Order> allOrders = fetchOrders();
@@ -94,5 +92,12 @@ public class OrderService {
 
         log.info("📋 Активных заявок: {}", activeOrders.size());
         return activeOrders;
+    }
+
+    /**
+     * Формирование JSON предпросмотра заявок для UI по списку инструментов
+     */
+    public String createOrdersJson(List<Instrument> instruments, String accountId) {
+        return com.algotrading.tinkoffinvestgui.api.OrdersService.createOrdersJson(instruments, accountId);
     }
 }
