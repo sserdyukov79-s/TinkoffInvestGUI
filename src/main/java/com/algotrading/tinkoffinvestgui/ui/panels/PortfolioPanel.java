@@ -35,11 +35,14 @@ public class PortfolioPanel extends JPanel {
     // UI компоненты
     private JLabel accountsLabel;
     private JTable accountsTable;
+    private JScrollPane accountsScroll;  // >>> ХРАНИМ ССЫЛКУ НА SCROLL PANE
     private JTable portfolioTable;
-    private JTable ordersTable;  // >>> НОВАЯ ТАБЛИЦА
+    private JScrollPane portfolioScroll;  // >>> ХРАНИМ ССЫЛКУ
+    private JTable ordersTable;
+    private JScrollPane ordersScroll;  // >>> ХРАНИМ ССЫЛКУ
     private JButton refreshButton;
     private JButton portfolioButton;
-    private JButton ordersButton;  // >>> НОВАЯ КНОПКА
+    private JButton ordersButton;
 
     private ScheduledExecutorService portfolioUpdateExecutor;
 
@@ -73,33 +76,40 @@ public class PortfolioPanel extends JPanel {
         portfolioButton = new JButton("Обновить портфель");
         portfolioButton.addActionListener(e -> showPortfolio());
 
-        ordersButton = new JButton("Обновить заявки");  // >>> НОВАЯ КНОПКА
+        ordersButton = new JButton("Обновить заявки");
         ordersButton.addActionListener(e -> refreshOrders());
 
         buttonsPanel.add(refreshButton);
         buttonsPanel.add(portfolioButton);
-        buttonsPanel.add(ordersButton);  // >>> ДОБАВЛЯЕМ В ПАНЕЛЬ
+        buttonsPanel.add(ordersButton);
 
         // Таблицы
         String[] accountColumns = {"ID", "Название", "Тип", "Статус"};
         accountsTable = new JTable(new DefaultTableModel(new Object[][]{}, accountColumns));
+        accountsTable.setFillsViewportHeight(false);  // >>> НЕ РАСТЯГИВАТЬ НА ВСЮ ВЫСОТУ
         TableUtils.addCopyMenu(accountsTable);
 
         String[] portfolioColumns = {"FIGI", "Тикер", "Тип", "Класс", "Кол-во", "Средняя цена", "Общая стоимость"};
         portfolioTable = new JTable(new DefaultTableModel(new Object[][]{}, portfolioColumns));
+        portfolioTable.setFillsViewportHeight(false);  // >>> НЕ РАСТЯГИВАТЬ
         TableUtils.addCopyMenu(portfolioTable);
 
-        // >>> НОВАЯ ТАБЛИЦА ЗАЯВОК
         String[] ordersColumns = {
                 "ID", "Инструмент", "Направление", "Кол-во", "Цена",
                 "Исполнено", "Статус", "Создана", "Выставлена"
         };
         ordersTable = new JTable(new DefaultTableModel(new Object[][]{}, ordersColumns));
+        ordersTable.setFillsViewportHeight(false);  // >>> НЕ РАСТЯГИВАТЬ
         TableUtils.addCopyMenu(ordersTable);
 
-        JScrollPane accountsScroll = new JScrollPane(accountsTable);
-        JScrollPane portfolioScroll = new JScrollPane(portfolioTable);
-        JScrollPane ordersScroll = new JScrollPane(ordersTable);  // >>> SCROLL ДЛЯ ЗАЯВОК
+        accountsScroll = new JScrollPane(accountsTable);
+        portfolioScroll = new JScrollPane(portfolioTable);
+        ordersScroll = new JScrollPane(ordersTable);
+
+        // >>> УСТАНАВЛИВАЕМ НАЧАЛЬНЫЕ РАЗМЕРЫ
+        setTablePreferredHeight(accountsScroll, accountsTable, 3);  // 3 строки для счетов
+        setTablePreferredHeight(portfolioScroll, portfolioTable, 10);  // 10 строк для портфеля
+        setTablePreferredHeight(ordersScroll, ordersTable, 8);  // 8 строк для заявок
 
         // Верхняя панель
         JPanel topPanel = new JPanel();
@@ -127,7 +137,6 @@ public class PortfolioPanel extends JPanel {
         centerPanel.add(portfolioLabel);
         centerPanel.add(portfolioScroll);
 
-        // >>> ДОБАВЛЯЕМ СЕКЦИЮ С ЗАЯВКАМИ
         centerPanel.add(Box.createVerticalStrut(15));
         JLabel ordersLabel = new JLabel("Активные заявки (сегодня):");
         ordersLabel.setFont(new Font("Arial", Font.BOLD, 12));
@@ -139,8 +148,39 @@ public class PortfolioPanel extends JPanel {
     }
 
     /**
-     * Запуск автоматического обновления портфеля и заявок
+     * >>> НОВЫЙ МЕТОД: Устанавливает высоту ScrollPane под количество строк таблицы
      */
+    private void setTablePreferredHeight(JScrollPane scrollPane, JTable table, int visibleRows) {
+        int rowHeight = table.getRowHeight();
+        int headerHeight = table.getTableHeader().getPreferredSize().height;
+        int totalHeight = headerHeight + (rowHeight * visibleRows);
+
+        scrollPane.setPreferredSize(new Dimension(
+                scrollPane.getPreferredSize().width,
+                totalHeight + 5  // +5px для границ
+        ));
+        scrollPane.setMaximumSize(new Dimension(
+                Integer.MAX_VALUE,
+                totalHeight + 5
+        ));
+    }
+
+    /**
+     * >>> НОВЫЙ МЕТОД: Автоматически подгоняет высоту ScrollPane под реальное количество строк
+     */
+    private void adjustTableHeight(JScrollPane scrollPane, JTable table, int maxVisibleRows) {
+        int actualRows = table.getRowCount();
+        int visibleRows = Math.min(actualRows, maxVisibleRows);
+
+        // Если таблица пустая, показываем хотя бы 2 строки
+        if (visibleRows == 0) {
+            visibleRows = 2;
+        }
+
+        setTablePreferredHeight(scrollPane, table, visibleRows);
+        scrollPane.revalidate();
+    }
+
     public void startAutoUpdate() {
         log.info("⏰ Запуск автоматического обновления портфеля каждые {} минут", PORTFOLIO_UPDATE_INTERVAL_MINUTES);
         portfolioUpdateExecutor = Executors.newScheduledThreadPool(1);
@@ -155,9 +195,6 @@ public class PortfolioPanel extends JPanel {
         );
     }
 
-    /**
-     * Остановка автоматического обновления
-     */
     public void stopAutoUpdate() {
         if (portfolioUpdateExecutor != null && !portfolioUpdateExecutor.isShutdown()) {
             log.info("⏹️ Остановка автоматического обновления портфеля");
@@ -173,9 +210,6 @@ public class PortfolioPanel extends JPanel {
         }
     }
 
-    /**
-     * Обновление счетов и портфеля
-     */
     public void updateAccountsAndPortfolio() {
         log.info("🔄 Обновление счетов и портфеля");
         refreshButton.setEnabled(false);
@@ -200,7 +234,7 @@ public class PortfolioPanel extends JPanel {
                         String accountId = accounts.getAccountsList().get(0).getId();
                         PortfolioService portfolioService = new PortfolioService(
                                 ConnectorConfig.getApiToken(),
-                                ConnectorConfig.API_URL(),
+                                ConnectorConfig.API_URL,
                                 ConnectorConfig.API_PORT
                         );
 
@@ -217,7 +251,6 @@ public class PortfolioPanel extends JPanel {
                     refreshButton.setEnabled(true);
                     refreshButton.setText("Обновить счета");
 
-                    // >>> АВТОМАТИЧЕСКИ ОБНОВЛЯЕМ ЗАЯВКИ ТОЖЕ
                     refreshOrders();
                 },
                 error -> {
@@ -229,16 +262,10 @@ public class PortfolioPanel extends JPanel {
         );
     }
 
-    /**
-     * Обновление только счетов
-     */
     private void updateAccounts() {
         updateAccountsAndPortfolio();
     }
 
-    /**
-     * Получение и обновление портфеля
-     */
     private void showPortfolio() {
         if (accountsTable.getRowCount() == 0 || accountsTable.getValueAt(0, 0) == null) {
             log.warn("⚠️ Счета не загружены");
@@ -276,9 +303,6 @@ public class PortfolioPanel extends JPanel {
         );
     }
 
-    /**
-     * >>> НОВЫЙ МЕТОД: Обновление активных заявок
-     */
     private void refreshOrders() {
         log.info("🔄 Обновление активных заявок");
         ordersButton.setEnabled(false);
@@ -286,8 +310,7 @@ public class PortfolioPanel extends JPanel {
 
         AsyncTask.execute(
                 () -> {
-                    // Получаем активные заявки за сегодня из БД
-                    return ordersRepository.findHistory(0); // 0 дней = только сегодня
+                    return ordersRepository.findTodayOrders();
                 },
                 orders -> {
                     log.info("✅ Получено заявок из БД: {}", orders.size());
@@ -304,9 +327,6 @@ public class PortfolioPanel extends JPanel {
         );
     }
 
-    /**
-     * >>> НОВЫЙ МЕТОД: Обновление таблицы заявок
-     */
     private void updateOrdersTable(List<Order> orders) {
         if (orders == null || orders.isEmpty()) {
             log.warn("⚠️ Нет заявок для отображения");
@@ -315,6 +335,7 @@ public class PortfolioPanel extends JPanel {
                     new String[]{"ID", "Инструмент", "Направление", "Кол-во", "Цена",
                             "Исполнено", "Статус", "Создана", "Выставлена"}
             ));
+            adjustTableHeight(ordersScroll, ordersTable, 8);  // >>> ПОДГОНЯЕМ РАЗМЕР
             return;
         }
 
@@ -325,7 +346,6 @@ public class PortfolioPanel extends JPanel {
             data[i][0] = order.getId();
             data[i][1] = order.getInstrumentName() != null ? order.getInstrumentName() : order.getFigi();
 
-            // Нормализация направления
             String direction = order.getDirection() != null ? order.getDirection().name() : "";
             direction = direction.replace("ORDER_DIRECTION_", "");
             data[i][2] = direction;
@@ -334,17 +354,14 @@ public class PortfolioPanel extends JPanel {
             data[i][4] = order.getPrice() != null ? String.format("%.2f ₽", order.getPrice()) : "--";
             data[i][5] = order.getLotsExecuted();
 
-            // Нормализация статуса
             String status = order.getStatus() != null ? order.getStatus() : "UNKNOWN";
             status = status.replace("EXECUTION_REPORT_STATUS_", "");
             data[i][6] = status;
 
-            // Время создания
             data[i][7] = order.getCreatedAt() != null
                     ? order.getCreatedAt().atZone(ZoneId.systemDefault()).format(TIME_FORMATTER)
                     : "--";
 
-            // Время выставления на биржу
             data[i][8] = order.getSubmittedAt() != null
                     ? order.getSubmittedAt().atZone(ZoneId.systemDefault()).format(TIME_FORMATTER)
                     : "--";
@@ -355,16 +372,15 @@ public class PortfolioPanel extends JPanel {
                 new String[]{"ID", "Инструмент", "Направление", "Кол-во", "Цена",
                         "Исполнено", "Статус", "Создана", "Выставлена"}
         ));
+        adjustTableHeight(ordersScroll, ordersTable, 15);  // >>> ПОДГОНЯЕМ РАЗМЕР (макс. 15 строк)
         log.debug("🔄 Таблица заявок обновлена, строк: {}", data.length);
     }
 
-    /**
-     * Обновление таблицы счетов
-     */
     private void updateAccountsTable(JTable table, java.util.List<Account> accounts) {
         if (accounts.isEmpty()) {
             log.warn("⚠️ Нет счетов для отображения");
             table.setModel(new DefaultTableModel(new Object[][]{}, new String[]{}));
+            adjustTableHeight(accountsScroll, accountsTable, 3);  // >>> ПОДГОНЯЕМ РАЗМЕР
             return;
         }
 
@@ -378,16 +394,15 @@ public class PortfolioPanel extends JPanel {
         }
 
         table.setModel(new DefaultTableModel(data, new String[]{"ID", "Название", "Тип", "Статус"}));
+        adjustTableHeight(accountsScroll, accountsTable, 3);  // >>> ПОДГОНЯЕМ РАЗМЕР (макс. 3 строки)
         log.debug("🔄 Таблица счетов обновлена, строк: {}, счетов: {}", data.length, accounts.size());
     }
 
-    /**
-     * Обновление таблицы портфеля
-     */
     private void updatePortfolioTable(PortfolioResponse portfolio) {
         if (portfolio.getPositionsCount() == 0) {
             log.warn("⚠️ Нет позиций в портфеле");
             portfolioTable.setModel(new DefaultTableModel(new Object[][]{}, new String[]{}));
+            adjustTableHeight(portfolioScroll, portfolioTable, 10);  // >>> ПОДГОНЯЕМ РАЗМЕР
             return;
         }
 
@@ -417,12 +432,10 @@ public class PortfolioPanel extends JPanel {
 
         portfolioTable.setModel(new DefaultTableModel(data,
                 new String[]{"FIGI", "Тикер", "Тип", "Класс", "Кол-во", "Средняя цена", "Общая стоимость"}));
+        adjustTableHeight(portfolioScroll, portfolioTable, 20);  // >>> ПОДГОНЯЕМ РАЗМЕР (макс. 20 строк)
         log.debug("🔄 Портфель обновлён, строк: {}, позиций: {}", data.length, portfolio.getPositionsCount());
     }
 
-    /**
-     * Форматирование типа счёта
-     */
     private String formatAccountType(AccountType type) {
         switch (type) {
             case ACCOUNT_TYPE_TINKOFF:
@@ -436,9 +449,6 @@ public class PortfolioPanel extends JPanel {
         }
     }
 
-    /**
-     * Форматирование статуса счёта
-     */
     private String formatAccountStatus(AccountStatus status) {
         switch (status) {
             case ACCOUNT_STATUS_OPEN:

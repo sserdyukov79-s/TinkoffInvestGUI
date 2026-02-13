@@ -298,6 +298,30 @@ public class OrdersRepository {
         }
         return orders;
     }
+    /**
+     * Заявки, созданные сегодня (с начала текущего дня).
+     */
+    public List<Order> findTodayOrders() {
+        String sql = """
+            SELECT * FROM public.orders
+            WHERE created_at::date = CURRENT_DATE
+            ORDER BY created_at DESC
+            """;
+
+        List<Order> orders = new ArrayList<>();
+        try (Connection conn = getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+
+            while (rs.next()) {
+                orders.add(mapResultSetToOrder(rs));
+            }
+            log.debug("Найдено заявок за сегодня: {}", orders.size());
+        } catch (SQLException e) {
+            log.error("Ошибка получения сегодняшних заявок", e);
+        }
+        return orders;
+    }
 
     /**
      * Проверка: есть ли сегодня активная заявка по FIGI + direction.
