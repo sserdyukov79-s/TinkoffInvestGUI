@@ -101,12 +101,17 @@ public class TradesRepository {
     /**
      * Все сделки за сегодня
      */
+    /**
+     * Все сделки за сегодня
+     */
     public List<Trade> findTodayTrades() {
+        // Используем UTC для сравнения или локальную дату
         String sql = """
-                SELECT * FROM public.trades
-                WHERE trade_date::date = CURRENT_DATE
-                ORDER BY trade_date DESC
-                """;
+            SELECT * FROM public.trades
+            WHERE trade_date >= CURRENT_DATE::timestamp
+              AND trade_date < (CURRENT_DATE + INTERVAL '1 day')::timestamp
+            ORDER BY trade_date DESC
+            """;
 
         List<Trade> trades = new ArrayList<>();
         try (Connection conn = getConnection();
@@ -116,11 +121,14 @@ public class TradesRepository {
             while (rs.next()) {
                 trades.add(mapResultSetToTrade(rs));
             }
+
+            log.info("📊 Найдено сделок за сегодня: {}", trades.size());
         } catch (SQLException e) {
             log.error("Ошибка получения сделок за сегодня", e);
         }
         return trades;
     }
+
 
     /**
      * Сделки за последние N дней

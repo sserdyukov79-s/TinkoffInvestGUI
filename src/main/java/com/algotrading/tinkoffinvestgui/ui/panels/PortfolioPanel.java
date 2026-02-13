@@ -572,15 +572,34 @@ public class PortfolioPanel extends JPanel {
 
         AsyncTask.execute(
                 () -> {
-                    // Синхронизируем сделки через API
-                    tradesSyncService.syncTodayTrades();
+                    try {
+                        // Синхронизируем сделки через API
+                        log.info("📡 Начало синхронизации сделок через API...");
+                        tradesSyncService.syncTodayTrades();
+                        log.info("✅ Синхронизация сделок завершена");
 
-                    // Получаем обновлённые данные из БД
-                    return tradesRepository.findTodayTrades();
+                        // Небольшая задержка для гарантии записи в БД
+                        Thread.sleep(200);
+
+                        // Получаем обновлённые данные из БД
+                        List<Trade> trades = tradesRepository.findTodayTrades();
+                        log.info("📊 Загружено сделок из БД для отображения: {}", trades.size());
+
+                        return trades;
+                    } catch (Exception e) {
+                        log.error("❌ Ошибка в процессе обновления сделок", e);
+                        throw new RuntimeException("Ошибка обновления: " + e.getMessage(), e);
+                    }
                 },
                 trades -> {
-                    log.info("✅ Получено сделок из БД: {}", trades.size());
-                    updateTradesTable((List<Trade>) trades);
+                    List<Trade> tradesList = (List<Trade>) trades;
+                    log.info("✅ Получено сделок из БД: {}", tradesList.size());
+
+                    if (tradesList.isEmpty()) {
+                        log.warn("⚠️ Список сделок пуст, но синхронизация прошла успешно");
+                    }
+
+                    updateTradesTable(tradesList);
                     tradesButton.setEnabled(true);
                     tradesButton.setText("Обновить сделки");
                 },
@@ -592,6 +611,7 @@ public class PortfolioPanel extends JPanel {
                 }
         );
     }
+
 
     /**
      * Обновление только таблицы сделок без блокировки кнопки
