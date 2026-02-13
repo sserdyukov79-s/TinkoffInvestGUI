@@ -71,7 +71,6 @@ public class OrdersBusinessService {
                     log.info("ISIN: {}", instrument.getIsin());
                     log.info("Приоритет: {}", instrument.getPriority());
 
-                    // Эффективные цены (manual приоритетнее auto)
                     BigDecimal effectiveBuyPrice = instrument.getEffectiveBuyPrice();
                     BigDecimal effectiveSellPrice = instrument.getEffectiveSellPrice();
 
@@ -80,34 +79,43 @@ public class OrdersBusinessService {
                             && instrument.getBuyQuantity() != null
                             && instrument.getBuyQuantity() > 0) {
 
-                        log.info("--- ЗАЯВКА НА ПОКУПКУ ---");
-                        if (instrument.getManualBuyPrice() != null) {
-                            log.info("Цена покупки (MANUAL): {}", effectiveBuyPrice);
-                        } else {
-                            log.info("Цена покупки (AUTO): {}", effectiveBuyPrice);
-                        }
-                        log.info("Количество: {}", instrument.getBuyQuantity());
-
-                        PostOrderResponse buyResponse = ordersService.postBuyOrder(
-                                accountId,
+                        // Проверка, нет ли уже активной заявки BUY по этому FIGI сегодня
+                        if (ordersRepository.hasActiveTodayOrder(
                                 instrument.getFigi(),
-                                instrument.getBuyQuantity(),
-                                effectiveBuyPrice
-                        );
-                        successCount++;
+                                OrderDirection.ORDER_DIRECTION_BUY.name())) {
+                            log.warn("Пропускаем BUY по {} (FIGI={}): уже есть активная заявка сегодня",
+                                    instrument.getName(), instrument.getFigi());
+                        } else {
+                            log.info("--- ЗАЯВКА НА ПОКУПКУ ---");
+                            if (instrument.getManualBuyPrice() != null) {
+                                log.info("Цена покупки (MANUAL): {}", effectiveBuyPrice);
+                            } else {
+                                log.info("Цена покупки (AUTO): {}", effectiveBuyPrice);
+                            }
+                            log.info("Количество: {}", instrument.getBuyQuantity());
 
-                        // Сохранение BUY-заявки в public.orders
-                        saveNewOrderToDb(
-                                accountId,
-                                instrument,
-                                OrderDirection.ORDER_DIRECTION_BUY,
-                                instrument.getBuyQuantity(),
-                                effectiveBuyPrice,
-                                buyResponse.getOrderId(),
-                                null // без parentOrderId
-                        );
+                            PostOrderResponse buyResponse = ordersService.postBuyOrder(
+                                    accountId,
+                                    instrument.getFigi(),
+                                    instrument.getBuyQuantity(),
+                                    effectiveBuyPrice
+                            );
+                            successCount++;
 
-                        Thread.sleep(AppConstants.ORDERSDELAYMILLIS);
+                            // Сохранение BUY-заявки в public.orders
+                            saveNewOrderToDb(
+                                    accountId,
+                                    instrument,
+                                    OrderDirection.ORDER_DIRECTION_BUY,
+                                    instrument.getBuyQuantity(),
+                                    effectiveBuyPrice,
+                                    buyResponse.getOrderId(),
+                                    null,
+                                    Instant.now() // submittedAt
+                            );
+
+                            Thread.sleep(AppConstants.ORDERSDELAYMILLIS);
+                        }
                     }
 
                     // ===== ЗАЯВКА НА ПРОДАЖУ =====
@@ -115,34 +123,43 @@ public class OrdersBusinessService {
                             && instrument.getSellQuantity() != null
                             && instrument.getSellQuantity() > 0) {
 
-                        log.info("--- ЗАЯВКА НА ПРОДАЖУ ---");
-                        if (instrument.getManualSellPrice() != null) {
-                            log.info("Цена продажи (MANUAL): {}", effectiveSellPrice);
-                        } else {
-                            log.info("Цена продажи (AUTO): {}", effectiveSellPrice);
-                        }
-                        log.info("Количество: {}", instrument.getSellQuantity());
-
-                        PostOrderResponse sellResponse = ordersService.postSellOrder(
-                                accountId,
+                        // Проверка, нет ли уже активной заявки SELL по этому FIGI сегодня
+                        if (ordersRepository.hasActiveTodayOrder(
                                 instrument.getFigi(),
-                                instrument.getSellQuantity(),
-                                effectiveSellPrice
-                        );
-                        successCount++;
+                                OrderDirection.ORDER_DIRECTION_SELL.name())) {
+                            log.warn("Пропускаем SELL по {} (FIGI={}): уже есть активная заявка сегодня",
+                                    instrument.getName(), instrument.getFigi());
+                        } else {
+                            log.info("--- ЗАЯВКА НА ПРОДАЖУ ---");
+                            if (instrument.getManualSellPrice() != null) {
+                                log.info("Цена продажи (MANUAL): {}", effectiveSellPrice);
+                            } else {
+                                log.info("Цена продажи (AUTO): {}", effectiveSellPrice);
+                            }
+                            log.info("Количество: {}", instrument.getSellQuantity());
 
-                        // Сохранение SELL-заявки в public.orders
-                        saveNewOrderToDb(
-                                accountId,
-                                instrument,
-                                OrderDirection.ORDER_DIRECTION_SELL,
-                                instrument.getSellQuantity(),
-                                effectiveSellPrice,
-                                sellResponse.getOrderId(),
-                                null // при желании сюда можно передавать my_order_id покупки
-                        );
+                            PostOrderResponse sellResponse = ordersService.postSellOrder(
+                                    accountId,
+                                    instrument.getFigi(),
+                                    instrument.getSellQuantity(),
+                                    effectiveSellPrice
+                            );
+                            successCount++;
 
-                        Thread.sleep(AppConstants.ORDERSDELAYMILLIS);
+                            // Сохранение SELL-заявки в public.orders
+                            saveNewOrderToDb(
+                                    accountId,
+                                    instrument,
+                                    OrderDirection.ORDER_DIRECTION_SELL,
+                                    instrument.getSellQuantity(),
+                                    effectiveSellPrice,
+                                    sellResponse.getOrderId(),
+                                    null,
+                                    Instant.now() // submittedAt
+                            );
+
+                            Thread.sleep(AppConstants.ORDERSDELAYMILLIS);
+                        }
                     }
 
                 } catch (Exception e) {
@@ -175,7 +192,8 @@ public class OrdersBusinessService {
                                   int quantity,
                                   BigDecimal price,
                                   String exchangeOrderId,
-                                  String parentOrderId) {
+                                  String parentOrderId,
+                                  Instant submittedAt) {
         try {
             Order order = new Order();
 
@@ -185,7 +203,6 @@ public class OrdersBusinessService {
 
             order.setAccountId(accountId);
             order.setFigi(instrument.getFigi());
-            // Если нет тикера, можно сохранить FIGI или оставить null
             order.setTicker(null);
             order.setInstrumentName(instrument.getName());
 
@@ -198,7 +215,7 @@ public class OrdersBusinessService {
             order.setPrice(price);
             order.setAverageExecutionPrice(null);
 
-            // Важно: PENDING, чтобы OrderTracker подобрал эту заявку
+            // PENDING, чтобы OrderTracker подобрал эту заявку
             order.setStatus("PENDING");
 
             order.setTotalOrderAmount(null);
@@ -210,33 +227,14 @@ public class OrdersBusinessService {
 
             order.setErrorMessage(null);
             order.setCreatedAt(Instant.now());
+            order.setSubmittedAt(submittedAt);
 
             ordersRepository.save(order);
             log.info("Заявка сохранена в БД: {} ({})", order.getMyOrderId(), direction);
         } catch (Exception e) {
-            // Не ломаем отправку всех заявок, просто логируем
             log.error("Не удалось сохранить заявку в БД по инструменту {}: {}",
                     instrument.getName(), e.getMessage(), e);
         }
-    }
-
-    // Эти методы сейчас нигде не используются, можно удалить или доработать под валидацию
-    @SuppressWarnings("unused")
-    private boolean isValidBuyOrder(Instrument instrument) {
-        return instrument.getBuyPrice() != null
-                && instrument.getBuyQuantity() != null
-                && instrument.getBuyQuantity() > 0
-                && instrument.getFigi() != null
-                && !instrument.getFigi().isEmpty();
-    }
-
-    @SuppressWarnings("unused")
-    private boolean isValidSellOrder(Instrument instrument) {
-        return instrument.getSellPrice() != null
-                && instrument.getSellQuantity() != null
-                && instrument.getSellQuantity() > 0
-                && instrument.getFigi() != null
-                && !instrument.getFigi().isEmpty();
     }
 
     // ===== DTO результата =====

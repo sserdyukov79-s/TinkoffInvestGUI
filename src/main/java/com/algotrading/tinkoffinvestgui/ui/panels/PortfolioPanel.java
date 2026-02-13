@@ -3,6 +3,8 @@ package com.algotrading.tinkoffinvestgui.ui.panels;
 import com.algotrading.tinkoffinvestgui.api.AccountsApiService;
 import com.algotrading.tinkoffinvestgui.api.PortfolioService;
 import com.algotrading.tinkoffinvestgui.config.ConnectorConfig;
+import com.algotrading.tinkoffinvestgui.model.Order;
+import com.algotrading.tinkoffinvestgui.repository.OrdersRepository;
 import com.algotrading.tinkoffinvestgui.ui.utils.AsyncTask;
 import com.algotrading.tinkoffinvestgui.ui.utils.DialogUtils;
 import com.algotrading.tinkoffinvestgui.ui.utils.TableUtils;
@@ -13,6 +15,9 @@ import ru.tinkoff.piapi.contract.v1.*;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -23,6 +28,7 @@ import java.util.concurrent.TimeUnit;
 public class PortfolioPanel extends JPanel {
     private static final Logger log = LoggerFactory.getLogger(PortfolioPanel.class);
     private static final long PORTFOLIO_UPDATE_INTERVAL_MINUTES = 5;
+    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
 
     private final JFrame parentFrame;
 
@@ -30,10 +36,14 @@ public class PortfolioPanel extends JPanel {
     private JLabel accountsLabel;
     private JTable accountsTable;
     private JTable portfolioTable;
+    private JTable ordersTable;  // >>> НОВАЯ ТАБЛИЦА
     private JButton refreshButton;
     private JButton portfolioButton;
+    private JButton ordersButton;  // >>> НОВАЯ КНОПКА
 
     private ScheduledExecutorService portfolioUpdateExecutor;
+
+    private final OrdersRepository ordersRepository = new OrdersRepository();
 
     public PortfolioPanel(JFrame parentFrame) {
         this.parentFrame = parentFrame;
@@ -63,8 +73,12 @@ public class PortfolioPanel extends JPanel {
         portfolioButton = new JButton("Обновить портфель");
         portfolioButton.addActionListener(e -> showPortfolio());
 
+        ordersButton = new JButton("Обновить заявки");  // >>> НОВАЯ КНОПКА
+        ordersButton.addActionListener(e -> refreshOrders());
+
         buttonsPanel.add(refreshButton);
         buttonsPanel.add(portfolioButton);
+        buttonsPanel.add(ordersButton);  // >>> ДОБАВЛЯЕМ В ПАНЕЛЬ
 
         // Таблицы
         String[] accountColumns = {"ID", "Название", "Тип", "Статус"};
@@ -75,8 +89,17 @@ public class PortfolioPanel extends JPanel {
         portfolioTable = new JTable(new DefaultTableModel(new Object[][]{}, portfolioColumns));
         TableUtils.addCopyMenu(portfolioTable);
 
+        // >>> НОВАЯ ТАБЛИЦА ЗАЯВОК
+        String[] ordersColumns = {
+                "ID", "Инструмент", "Направление", "Кол-во", "Цена",
+                "Исполнено", "Статус", "Создана", "Выставлена"
+        };
+        ordersTable = new JTable(new DefaultTableModel(new Object[][]{}, ordersColumns));
+        TableUtils.addCopyMenu(ordersTable);
+
         JScrollPane accountsScroll = new JScrollPane(accountsTable);
         JScrollPane portfolioScroll = new JScrollPane(portfolioTable);
+        JScrollPane ordersScroll = new JScrollPane(ordersTable);  // >>> SCROLL ДЛЯ ЗАЯВОК
 
         // Верхняя панель
         JPanel topPanel = new JPanel();
@@ -104,18 +127,28 @@ public class PortfolioPanel extends JPanel {
         centerPanel.add(portfolioLabel);
         centerPanel.add(portfolioScroll);
 
+        // >>> ДОБАВЛЯЕМ СЕКЦИЮ С ЗАЯВКАМИ
+        centerPanel.add(Box.createVerticalStrut(15));
+        JLabel ordersLabel = new JLabel("Активные заявки (сегодня):");
+        ordersLabel.setFont(new Font("Arial", Font.BOLD, 12));
+        centerPanel.add(ordersLabel);
+        centerPanel.add(ordersScroll);
+
         add(topPanel, BorderLayout.NORTH);
         add(centerPanel, BorderLayout.CENTER);
     }
 
     /**
-     * Запуск автоматического обновления портфеля
+     * Запуск автоматического обновления портфеля и заявок
      */
     public void startAutoUpdate() {
         log.info("⏰ Запуск автоматического обновления портфеля каждые {} минут", PORTFOLIO_UPDATE_INTERVAL_MINUTES);
         portfolioUpdateExecutor = Executors.newScheduledThreadPool(1);
         portfolioUpdateExecutor.scheduleAtFixedRate(
-                this::showPortfolio,
+                () -> {
+                    showPortfolio();
+                    refreshOrders();
+                },
                 PORTFOLIO_UPDATE_INTERVAL_MINUTES,
                 PORTFOLIO_UPDATE_INTERVAL_MINUTES,
                 TimeUnit.MINUTES
@@ -167,7 +200,7 @@ public class PortfolioPanel extends JPanel {
                         String accountId = accounts.getAccountsList().get(0).getId();
                         PortfolioService portfolioService = new PortfolioService(
                                 ConnectorConfig.getApiToken(),
-                                ConnectorConfig.API_URL,
+                                ConnectorConfig.API_URL(),
                                 ConnectorConfig.API_PORT
                         );
 
@@ -183,6 +216,9 @@ public class PortfolioPanel extends JPanel {
 
                     refreshButton.setEnabled(true);
                     refreshButton.setText("Обновить счета");
+
+                    // >>> АВТОМАТИЧЕСКИ ОБНОВЛЯЕМ ЗАЯВКИ ТОЖЕ
+                    refreshOrders();
                 },
                 error -> {
                     log.error("❌ Ошибка обновления счетов", error);
@@ -238,6 +274,88 @@ public class PortfolioPanel extends JPanel {
                     portfolioButton.setText("Обновить портфель");
                 }
         );
+    }
+
+    /**
+     * >>> НОВЫЙ МЕТОД: Обновление активных заявок
+     */
+    private void refreshOrders() {
+        log.info("🔄 Обновление активных заявок");
+        ordersButton.setEnabled(false);
+        ordersButton.setText("Загрузка...");
+
+        AsyncTask.execute(
+                () -> {
+                    // Получаем активные заявки за сегодня из БД
+                    return ordersRepository.findHistory(0); // 0 дней = только сегодня
+                },
+                orders -> {
+                    log.info("✅ Получено заявок из БД: {}", orders.size());
+                    updateOrdersTable((List<Order>) orders);
+                    ordersButton.setEnabled(true);
+                    ordersButton.setText("Обновить заявки");
+                },
+                error -> {
+                    log.error("❌ Ошибка получения заявок", error);
+                    DialogUtils.showError(parentFrame, "Ошибка загрузки заявок: " + error.getMessage());
+                    ordersButton.setEnabled(true);
+                    ordersButton.setText("Обновить заявки");
+                }
+        );
+    }
+
+    /**
+     * >>> НОВЫЙ МЕТОД: Обновление таблицы заявок
+     */
+    private void updateOrdersTable(List<Order> orders) {
+        if (orders == null || orders.isEmpty()) {
+            log.warn("⚠️ Нет заявок для отображения");
+            ordersTable.setModel(new DefaultTableModel(
+                    new Object[][]{},
+                    new String[]{"ID", "Инструмент", "Направление", "Кол-во", "Цена",
+                            "Исполнено", "Статус", "Создана", "Выставлена"}
+            ));
+            return;
+        }
+
+        Object[][] data = new Object[orders.size()][9];
+        for (int i = 0; i < orders.size(); i++) {
+            Order order = orders.get(i);
+
+            data[i][0] = order.getId();
+            data[i][1] = order.getInstrumentName() != null ? order.getInstrumentName() : order.getFigi();
+
+            // Нормализация направления
+            String direction = order.getDirection() != null ? order.getDirection().name() : "";
+            direction = direction.replace("ORDER_DIRECTION_", "");
+            data[i][2] = direction;
+
+            data[i][3] = order.getLotsRequested();
+            data[i][4] = order.getPrice() != null ? String.format("%.2f ₽", order.getPrice()) : "--";
+            data[i][5] = order.getLotsExecuted();
+
+            // Нормализация статуса
+            String status = order.getStatus() != null ? order.getStatus() : "UNKNOWN";
+            status = status.replace("EXECUTION_REPORT_STATUS_", "");
+            data[i][6] = status;
+
+            // Время создания
+            data[i][7] = order.getCreatedAt() != null
+                    ? order.getCreatedAt().atZone(ZoneId.systemDefault()).format(TIME_FORMATTER)
+                    : "--";
+
+            // Время выставления на биржу
+            data[i][8] = order.getSubmittedAt() != null
+                    ? order.getSubmittedAt().atZone(ZoneId.systemDefault()).format(TIME_FORMATTER)
+                    : "--";
+        }
+
+        ordersTable.setModel(new DefaultTableModel(
+                data,
+                new String[]{"ID", "Инструмент", "Направление", "Кол-во", "Цена",
+                        "Исполнено", "Статус", "Создана", "Выставлена"}
+        ));
+        log.debug("🔄 Таблица заявок обновлена, строк: {}", data.length);
     }
 
     /**
