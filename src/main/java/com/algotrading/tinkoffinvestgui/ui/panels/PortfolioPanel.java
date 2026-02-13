@@ -5,6 +5,8 @@ import com.algotrading.tinkoffinvestgui.api.PortfolioService;
 import com.algotrading.tinkoffinvestgui.config.ConnectorConfig;
 import com.algotrading.tinkoffinvestgui.model.Order;
 import com.algotrading.tinkoffinvestgui.repository.OrdersRepository;
+import com.algotrading.tinkoffinvestgui.service.AccountService;
+import com.algotrading.tinkoffinvestgui.service.TinkoffApiService;
 import com.algotrading.tinkoffinvestgui.ui.utils.AsyncTask;
 import com.algotrading.tinkoffinvestgui.ui.utils.DialogUtils;
 import com.algotrading.tinkoffinvestgui.ui.utils.TableUtils;
@@ -35,16 +37,17 @@ public class PortfolioPanel extends JPanel {
     // UI компоненты
     private JLabel accountsLabel;
     private JTable accountsTable;
-    private JScrollPane accountsScroll;  // >>> ХРАНИМ ССЫЛКУ НА SCROLL PANE
+    private JScrollPane accountsScroll;
     private JTable portfolioTable;
-    private JScrollPane portfolioScroll;  // >>> ХРАНИМ ССЫЛКУ
+    private JScrollPane portfolioScroll;
     private JTable ordersTable;
-    private JScrollPane ordersScroll;  // >>> ХРАНИМ ССЫЛКУ
+    private JScrollPane ordersScroll;
     private JButton refreshButton;
     private JButton portfolioButton;
     private JButton ordersButton;
 
     private ScheduledExecutorService portfolioUpdateExecutor;
+    private ScheduledExecutorService orderTrackerExecutor;  // >>> НОВЫЙ EXECUTOR ДЛЯ ТРЕКЕРА
 
     private final OrdersRepository ordersRepository = new OrdersRepository();
 
@@ -86,12 +89,12 @@ public class PortfolioPanel extends JPanel {
         // Таблицы
         String[] accountColumns = {"ID", "Название", "Тип", "Статус"};
         accountsTable = new JTable(new DefaultTableModel(new Object[][]{}, accountColumns));
-        accountsTable.setFillsViewportHeight(false);  // >>> НЕ РАСТЯГИВАТЬ НА ВСЮ ВЫСОТУ
+        accountsTable.setFillsViewportHeight(false);
         TableUtils.addCopyMenu(accountsTable);
 
         String[] portfolioColumns = {"FIGI", "Тикер", "Тип", "Класс", "Кол-во", "Средняя цена", "Общая стоимость"};
         portfolioTable = new JTable(new DefaultTableModel(new Object[][]{}, portfolioColumns));
-        portfolioTable.setFillsViewportHeight(false);  // >>> НЕ РАСТЯГИВАТЬ
+        portfolioTable.setFillsViewportHeight(false);
         TableUtils.addCopyMenu(portfolioTable);
 
         String[] ordersColumns = {
@@ -99,17 +102,16 @@ public class PortfolioPanel extends JPanel {
                 "Исполнено", "Статус", "Создана", "Выставлена"
         };
         ordersTable = new JTable(new DefaultTableModel(new Object[][]{}, ordersColumns));
-        ordersTable.setFillsViewportHeight(false);  // >>> НЕ РАСТЯГИВАТЬ
+        ordersTable.setFillsViewportHeight(false);
         TableUtils.addCopyMenu(ordersTable);
 
         accountsScroll = new JScrollPane(accountsTable);
         portfolioScroll = new JScrollPane(portfolioTable);
         ordersScroll = new JScrollPane(ordersTable);
 
-        // >>> УСТАНАВЛИВАЕМ НАЧАЛЬНЫЕ РАЗМЕРЫ
-        setTablePreferredHeight(accountsScroll, accountsTable, 3);  // 3 строки для счетов
-        setTablePreferredHeight(portfolioScroll, portfolioTable, 10);  // 10 строк для портфеля
-        setTablePreferredHeight(ordersScroll, ordersTable, 8);  // 8 строк для заявок
+        setTablePreferredHeight(accountsScroll, accountsTable, 3);
+        setTablePreferredHeight(portfolioScroll, portfolioTable, 10);
+        setTablePreferredHeight(ordersScroll, ordersTable, 8);
 
         // Верхняя панель
         JPanel topPanel = new JPanel();
@@ -147,9 +149,6 @@ public class PortfolioPanel extends JPanel {
         add(centerPanel, BorderLayout.CENTER);
     }
 
-    /**
-     * >>> НОВЫЙ МЕТОД: Устанавливает высоту ScrollPane под количество строк таблицы
-     */
     private void setTablePreferredHeight(JScrollPane scrollPane, JTable table, int visibleRows) {
         int rowHeight = table.getRowHeight();
         int headerHeight = table.getTableHeader().getPreferredSize().height;
@@ -157,7 +156,7 @@ public class PortfolioPanel extends JPanel {
 
         scrollPane.setPreferredSize(new Dimension(
                 scrollPane.getPreferredSize().width,
-                totalHeight + 5  // +5px для границ
+                totalHeight + 5
         ));
         scrollPane.setMaximumSize(new Dimension(
                 Integer.MAX_VALUE,
@@ -165,14 +164,10 @@ public class PortfolioPanel extends JPanel {
         ));
     }
 
-    /**
-     * >>> НОВЫЙ МЕТОД: Автоматически подгоняет высоту ScrollPane под реальное количество строк
-     */
     private void adjustTableHeight(JScrollPane scrollPane, JTable table, int maxVisibleRows) {
         int actualRows = table.getRowCount();
         int visibleRows = Math.min(actualRows, maxVisibleRows);
 
-        // Если таблица пустая, показываем хотя бы 2 строки
         if (visibleRows == 0) {
             visibleRows = 2;
         }
@@ -181,8 +176,13 @@ public class PortfolioPanel extends JPanel {
         scrollPane.revalidate();
     }
 
+    /**
+     * Запуск автоматического обновления портфеля и трекера заявок
+     */
     public void startAutoUpdate() {
         log.info("⏰ Запуск автоматического обновления портфеля каждые {} минут", PORTFOLIO_UPDATE_INTERVAL_MINUTES);
+
+        // Обновление портфеля
         portfolioUpdateExecutor = Executors.newScheduledThreadPool(1);
         portfolioUpdateExecutor.scheduleAtFixedRate(
                 () -> {
@@ -193,8 +193,29 @@ public class PortfolioPanel extends JPanel {
                 PORTFOLIO_UPDATE_INTERVAL_MINUTES,
                 TimeUnit.MINUTES
         );
+
+        // >>> РЕШЕНИЕ 2: Автоматический трекер статусов заявок каждые 30 секунд
+        log.info("⏰ Запуск автоматической синхронизации статусов заявок каждые 30 секунд");
+        orderTrackerExecutor = Executors.newScheduledThreadPool(1);
+        orderTrackerExecutor.scheduleAtFixedRate(
+                () -> {
+                    syncOrderStatuses();
+                    // Автообновление таблицы после синхронизации
+                    SwingUtilities.invokeLater(() -> {
+                        if (ordersTable.getRowCount() > 0) {
+                            refreshOrdersTableOnly();
+                        }
+                    });
+                },
+                10,  // первый запуск через 10 сек
+                30,  // затем каждые 30 сек
+                TimeUnit.SECONDS
+        );
     }
 
+    /**
+     * Остановка автоматического обновления
+     */
     public void stopAutoUpdate() {
         if (portfolioUpdateExecutor != null && !portfolioUpdateExecutor.isShutdown()) {
             log.info("⏹️ Остановка автоматического обновления портфеля");
@@ -205,6 +226,20 @@ public class PortfolioPanel extends JPanel {
                 }
             } catch (InterruptedException e) {
                 portfolioUpdateExecutor.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        // >>> ОСТАНАВЛИВАЕМ ТРЕКЕР ЗАЯВОК
+        if (orderTrackerExecutor != null && !orderTrackerExecutor.isShutdown()) {
+            log.info("⏹️ Остановка трекера заявок");
+            orderTrackerExecutor.shutdown();
+            try {
+                if (!orderTrackerExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
+                    orderTrackerExecutor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                orderTrackerExecutor.shutdownNow();
                 Thread.currentThread().interrupt();
             }
         }
@@ -303,6 +338,9 @@ public class PortfolioPanel extends JPanel {
         );
     }
 
+    /**
+     * >>> РЕШЕНИЕ 1: Обновление заявок с синхронизацией статусов
+     */
     private void refreshOrders() {
         log.info("🔄 Обновление активных заявок");
         ordersButton.setEnabled(false);
@@ -310,6 +348,10 @@ public class PortfolioPanel extends JPanel {
 
         AsyncTask.execute(
                 () -> {
+                    // Сначала синхронизируем статусы с API
+                    syncOrderStatuses();
+
+                    // Потом получаем обновлённые данные из БД
                     return ordersRepository.findTodayOrders();
                 },
                 orders -> {
@@ -327,6 +369,89 @@ public class PortfolioPanel extends JPanel {
         );
     }
 
+    /**
+     * >>> НОВЫЙ МЕТОД: Обновление только таблицы заявок без блокировки кнопки
+     */
+    private void refreshOrdersTableOnly() {
+        try {
+            List<Order> orders = ordersRepository.findTodayOrders();
+            updateOrdersTable(orders);
+        } catch (Exception e) {
+            log.error("Ошибка обновления таблицы заявок", e);
+        }
+    }
+
+    /**
+     * >>> РЕШЕНИЕ 1+2: Синхронизация статусов активных заявок с API
+     */
+    private void syncOrderStatuses() {
+        try {
+            String accountId;
+            try {
+                accountId = AccountService.getActiveAccountId();
+            } catch (Exception e) {
+                log.error("Не удалось получить account ID для синхронизации", e);
+                return;
+            }
+
+            TinkoffApiService apiService = new TinkoffApiService(
+                    ConnectorConfig.getApiToken(),
+                    accountId
+            );
+
+            try {
+                // Получаем активные заявки с биржи
+                List<OrderState> apiOrders = apiService.getOrders();
+                log.debug("📡 Получено активных заявок с биржи: {}", apiOrders.size());
+
+                // Обновляем статусы в БД
+                for (OrderState apiOrder : apiOrders) {
+                    Order dbOrder = ordersRepository.findByExchangeOrderId(apiOrder.getOrderId());
+                    if (dbOrder != null) {
+                        String newStatus = apiOrder.getExecutionReportStatus().name()
+                                .replace("EXECUTION_REPORT_STATUS_", "");
+
+                        if (!newStatus.equals(dbOrder.getStatus())) {
+                            dbOrder.setStatus(newStatus);
+                            dbOrder.setLotsExecuted(apiOrder.getLotsExecuted());
+                            ordersRepository.update(dbOrder);
+                            log.info("✓ Обновлён статус заявки {}: {} → {}",
+                                    dbOrder.getMyOrderId(), dbOrder.getStatus(), newStatus);
+                        }
+                    }
+                }
+
+                // Проверяем отменённые заявки (которых уже нет на бирже)
+                List<Order> todayOrders = ordersRepository.findTodayOrders();
+                for (Order dbOrder : todayOrders) {
+                    if (dbOrder.getExchangeOrderId() == null) continue;
+
+                    // Пропускаем уже завершённые заявки
+                    if (dbOrder.getStatus().equals("FILLED") ||
+                            dbOrder.getStatus().equals("CANCELLED") ||
+                            dbOrder.getStatus().equals("REJECTED")) {
+                        continue;
+                    }
+
+                    boolean existsOnExchange = apiOrders.stream()
+                            .anyMatch(api -> api.getOrderId().equals(dbOrder.getExchangeOrderId()));
+
+                    if (!existsOnExchange) {
+                        log.info("⚠️ Заявка {} не найдена на бирже, помечаем как CANCELLED",
+                                dbOrder.getMyOrderId());
+                        dbOrder.setStatus("CANCELLED");
+                        ordersRepository.update(dbOrder);
+                    }
+                }
+
+            } finally {
+                apiService.close();
+            }
+        } catch (Exception e) {
+            log.error("Ошибка синхронизации статусов заявок", e);
+        }
+    }
+
     private void updateOrdersTable(List<Order> orders) {
         if (orders == null || orders.isEmpty()) {
             log.warn("⚠️ Нет заявок для отображения");
@@ -335,7 +460,7 @@ public class PortfolioPanel extends JPanel {
                     new String[]{"ID", "Инструмент", "Направление", "Кол-во", "Цена",
                             "Исполнено", "Статус", "Создана", "Выставлена"}
             ));
-            adjustTableHeight(ordersScroll, ordersTable, 8);  // >>> ПОДГОНЯЕМ РАЗМЕР
+            adjustTableHeight(ordersScroll, ordersTable, 8);
             return;
         }
 
@@ -372,7 +497,7 @@ public class PortfolioPanel extends JPanel {
                 new String[]{"ID", "Инструмент", "Направление", "Кол-во", "Цена",
                         "Исполнено", "Статус", "Создана", "Выставлена"}
         ));
-        adjustTableHeight(ordersScroll, ordersTable, 15);  // >>> ПОДГОНЯЕМ РАЗМЕР (макс. 15 строк)
+        adjustTableHeight(ordersScroll, ordersTable, 15);
         log.debug("🔄 Таблица заявок обновлена, строк: {}", data.length);
     }
 
@@ -380,7 +505,7 @@ public class PortfolioPanel extends JPanel {
         if (accounts.isEmpty()) {
             log.warn("⚠️ Нет счетов для отображения");
             table.setModel(new DefaultTableModel(new Object[][]{}, new String[]{}));
-            adjustTableHeight(accountsScroll, accountsTable, 3);  // >>> ПОДГОНЯЕМ РАЗМЕР
+            adjustTableHeight(accountsScroll, accountsTable, 3);
             return;
         }
 
@@ -394,7 +519,7 @@ public class PortfolioPanel extends JPanel {
         }
 
         table.setModel(new DefaultTableModel(data, new String[]{"ID", "Название", "Тип", "Статус"}));
-        adjustTableHeight(accountsScroll, accountsTable, 3);  // >>> ПОДГОНЯЕМ РАЗМЕР (макс. 3 строки)
+        adjustTableHeight(accountsScroll, accountsTable, 3);
         log.debug("🔄 Таблица счетов обновлена, строк: {}, счетов: {}", data.length, accounts.size());
     }
 
@@ -402,7 +527,7 @@ public class PortfolioPanel extends JPanel {
         if (portfolio.getPositionsCount() == 0) {
             log.warn("⚠️ Нет позиций в портфеле");
             portfolioTable.setModel(new DefaultTableModel(new Object[][]{}, new String[]{}));
-            adjustTableHeight(portfolioScroll, portfolioTable, 10);  // >>> ПОДГОНЯЕМ РАЗМЕР
+            adjustTableHeight(portfolioScroll, portfolioTable, 10);
             return;
         }
 
@@ -432,7 +557,7 @@ public class PortfolioPanel extends JPanel {
 
         portfolioTable.setModel(new DefaultTableModel(data,
                 new String[]{"FIGI", "Тикер", "Тип", "Класс", "Кол-во", "Средняя цена", "Общая стоимость"}));
-        adjustTableHeight(portfolioScroll, portfolioTable, 20);  // >>> ПОДГОНЯЕМ РАЗМЕР (макс. 20 строк)
+        adjustTableHeight(portfolioScroll, portfolioTable, 20);
         log.debug("🔄 Портфель обновлён, строк: {}, позиций: {}", data.length, portfolio.getPositionsCount());
     }
 
