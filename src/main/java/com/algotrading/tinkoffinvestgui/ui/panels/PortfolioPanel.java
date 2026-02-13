@@ -10,6 +10,9 @@ import com.algotrading.tinkoffinvestgui.service.TinkoffApiService;
 import com.algotrading.tinkoffinvestgui.ui.utils.AsyncTask;
 import com.algotrading.tinkoffinvestgui.ui.utils.DialogUtils;
 import com.algotrading.tinkoffinvestgui.ui.utils.TableUtils;
+import com.algotrading.tinkoffinvestgui.repository.TradesRepository;
+import com.algotrading.tinkoffinvestgui.service.TradesSyncService;
+import com.algotrading.tinkoffinvestgui.model.Trade;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import ru.tinkoff.piapi.contract.v1.*;
@@ -45,11 +48,17 @@ public class PortfolioPanel extends JPanel {
     private JButton refreshButton;
     private JButton portfolioButton;
     private JButton ordersButton;
+    private JTable tradesTable;
+    private JScrollPane tradesScroll;
+    private JButton tradesButton;
+    private ScheduledExecutorService tradesSyncExecutor;
 
     private ScheduledExecutorService portfolioUpdateExecutor;
     private ScheduledExecutorService orderTrackerExecutor;  // >>> НОВЫЙ EXECUTOR ДЛЯ ТРЕКЕРА
 
     private final OrdersRepository ordersRepository = new OrdersRepository();
+    private final TradesRepository tradesRepository = new TradesRepository();
+    private final TradesSyncService tradesSyncService = new TradesSyncService();
 
     public PortfolioPanel(JFrame parentFrame) {
         this.parentFrame = parentFrame;
@@ -104,6 +113,29 @@ public class PortfolioPanel extends JPanel {
         ordersTable = new JTable(new DefaultTableModel(new Object[][]{}, ordersColumns));
         ordersTable.setFillsViewportHeight(false);
         TableUtils.addCopyMenu(ordersTable);
+
+        String[] tradesColumns = {
+                "ID", "Инструмент", "Направление", "Кол-во", "Цена",
+                "Сумма", "Комиссия", "НКД", "Дата сделки"
+        };
+        tradesTable = new JTable(new DefaultTableModel(new Object[][]{}, tradesColumns));
+        tradesTable.setFillsViewportHeight(false);
+        TableUtils.addCopyMenu(tradesTable);
+
+        tradesScroll = new JScrollPane(tradesTable);
+        setTablePreferredHeight(tradesScroll, tradesTable, 8);
+
+// В buttonsPanel добавь кнопку:
+        tradesButton = new JButton("Обновить сделки");
+        tradesButton.addActionListener(e -> refreshTrades());
+        buttonsPanel.add(tradesButton);
+
+// В centerPanel после ordersScroll добавь:
+        centerPanel.add(Box.createVerticalStrut(15));
+        JLabel tradesLabel = new JLabel("Сделки (сегодня):");
+        tradesLabel.setFont(new Font("Arial", Font.BOLD, 12));
+        centerPanel.add(tradesLabel);
+        centerPanel.add(tradesScroll);
 
         accountsScroll = new JScrollPane(accountsTable);
         portfolioScroll = new JScrollPane(portfolioTable);
@@ -194,24 +226,41 @@ public class PortfolioPanel extends JPanel {
                 TimeUnit.MINUTES
         );
 
-        // >>> РЕШЕНИЕ 2: Автоматический трекер статусов заявок каждые 30 секунд
+        // Автоматический трекер статусов заявок каждые 30 секунд
         log.info("⏰ Запуск автоматической синхронизации статусов заявок каждые 30 секунд");
         orderTrackerExecutor = Executors.newScheduledThreadPool(1);
         orderTrackerExecutor.scheduleAtFixedRate(
                 () -> {
                     syncOrderStatuses();
-                    // Автообновление таблицы после синхронизации
                     SwingUtilities.invokeLater(() -> {
                         if (ordersTable.getRowCount() > 0) {
                             refreshOrdersTableOnly();
                         }
                     });
                 },
-                10,  // первый запуск через 10 сек
-                30,  // затем каждые 30 сек
+                10,
+                30,
+                TimeUnit.SECONDS
+        );
+
+        // >>> НОВОЕ: Автоматическая синхронизация сделок каждые 5 минут
+        log.info("⏰ Запуск автоматической синхронизации сделок каждые 5 минут");
+        tradesSyncExecutor = Executors.newScheduledThreadPool(1);
+        tradesSyncExecutor.scheduleAtFixedRate(
+                () -> {
+                    syncTrades();
+                    SwingUtilities.invokeLater(() -> {
+                        if (tradesTable.getRowCount() > 0) {
+                            refreshTradesTableOnly();
+                        }
+                    });
+                },
+                30,  // первый запуск через 30 сек
+                300,  // затем каждые 5 минут (300 сек)
                 TimeUnit.SECONDS
         );
     }
+
 
     /**
      * Остановка автоматического обновления
@@ -230,7 +279,6 @@ public class PortfolioPanel extends JPanel {
             }
         }
 
-        // >>> ОСТАНАВЛИВАЕМ ТРЕКЕР ЗАЯВОК
         if (orderTrackerExecutor != null && !orderTrackerExecutor.isShutdown()) {
             log.info("⏹️ Остановка трекера заявок");
             orderTrackerExecutor.shutdown();
@@ -243,7 +291,22 @@ public class PortfolioPanel extends JPanel {
                 Thread.currentThread().interrupt();
             }
         }
+
+        // >>> НОВОЕ: Остановка синхронизации сделок
+        if (tradesSyncExecutor != null && !tradesSyncExecutor.isShutdown()) {
+            log.info("⏹️ Остановка синхронизации сделок");
+            tradesSyncExecutor.shutdown();
+            try {
+                if (!tradesSyncExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
+                    tradesSyncExecutor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                tradesSyncExecutor.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        }
     }
+
 
     public void updateAccountsAndPortfolio() {
         log.info("🔄 Обновление счетов и портфеля");
@@ -500,6 +563,117 @@ public class PortfolioPanel extends JPanel {
         adjustTableHeight(ordersScroll, ordersTable, 15);
         log.debug("🔄 Таблица заявок обновлена, строк: {}", data.length);
     }
+
+    /**
+     * Обновление сделок с синхронизацией через API
+     */
+    private void refreshTrades() {
+        log.info("🔄 Обновление сделок");
+        tradesButton.setEnabled(false);
+        tradesButton.setText("Загрузка...");
+
+        AsyncTask.execute(
+                () -> {
+                    // Синхронизируем сделки через API
+                    tradesSyncService.syncTodayTrades();
+
+                    // Получаем обновлённые данные из БД
+                    return tradesRepository.findTodayTrades();
+                },
+                trades -> {
+                    log.info("✅ Получено сделок из БД: {}", trades.size());
+                    updateTradesTable((List<Trade>) trades);
+                    tradesButton.setEnabled(true);
+                    tradesButton.setText("Обновить сделки");
+                },
+                error -> {
+                    log.error("❌ Ошибка получения сделок", error);
+                    DialogUtils.showError(parentFrame, "Ошибка загрузки сделок: " + error.getMessage());
+                    tradesButton.setEnabled(true);
+                    tradesButton.setText("Обновить сделки");
+                }
+        );
+    }
+
+    /**
+     * Обновление только таблицы сделок без блокировки кнопки
+     */
+    private void refreshTradesTableOnly() {
+        try {
+            List<Trade> trades = tradesRepository.findTodayTrades();
+            updateTradesTable(trades);
+        } catch (Exception e) {
+            log.error("Ошибка обновления таблицы сделок", e);
+        }
+    }
+
+    /**
+     * Синхронизация сделок с API (фоновая задача)
+     */
+    private void syncTrades() {
+        try {
+            tradesSyncService.syncTodayTrades();
+        } catch (Exception e) {
+            log.error("Ошибка фоновой синхронизации сделок", e);
+        }
+    }
+
+    /**
+     * Обновление таблицы сделок
+     */
+    private void updateTradesTable(List<Trade> trades) {
+        if (trades == null || trades.isEmpty()) {
+            log.warn("⚠️ Нет сделок для отображения");
+            tradesTable.setModel(new DefaultTableModel(
+                    new Object[][]{},
+                    new String[]{"ID", "Инструмент", "Направление", "Кол-во", "Цена",
+                            "Сумма", "Комиссия", "НКД", "Дата сделки"}
+            ));
+            adjustTableHeight(tradesScroll, tradesTable, 8);
+            return;
+        }
+
+        Object[][] data = new Object[trades.size()][9];
+        for (int i = 0; i < trades.size(); i++) {
+            Trade trade = trades.get(i);
+
+            data[i][0] = trade.getId();
+            data[i][1] = trade.getInstrumentName() != null
+                    ? trade.getInstrumentName()
+                    : trade.getFigi();
+
+            String direction = trade.getDirection();
+            direction = direction.replace("ORDER_DIRECTION_", "");
+            data[i][2] = direction;
+
+            data[i][3] = trade.getQuantity();
+            data[i][4] = trade.getPrice() != null
+                    ? String.format("%.2f ₽", trade.getPrice())
+                    : "--";
+            data[i][5] = trade.getTradeAmount() != null
+                    ? String.format("%.2f ₽", trade.getTradeAmount())
+                    : "--";
+            data[i][6] = trade.getCommission() != null
+                    ? String.format("%.2f ₽", trade.getCommission())
+                    : "--";
+            data[i][7] = trade.getAci() != null
+                    ? String.format("%.2f ₽", trade.getAci())
+                    : "--";
+
+            data[i][8] = trade.getTradeDate() != null
+                    ? trade.getTradeDate().atZone(ZoneId.systemDefault()).format(TIME_FORMATTER)
+                    : "--";
+        }
+
+        tradesTable.setModel(new DefaultTableModel(
+                data,
+                new String[]{"ID", "Инструмент", "Направление", "Кол-во", "Цена",
+                        "Сумма", "Комиссия", "НКД", "Дата сделки"}
+        ));
+        adjustTableHeight(tradesScroll, tradesTable, 15);
+        log.debug("🔄 Таблица сделок обновлена, строк: {}", data.length);
+    }
+
 
     private void updateAccountsTable(JTable table, java.util.List<Account> accounts) {
         if (accounts.isEmpty()) {

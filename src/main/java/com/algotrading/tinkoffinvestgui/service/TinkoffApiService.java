@@ -4,6 +4,9 @@ import ru.tinkoff.piapi.contract.v1.*;
 import io.grpc.*;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.time.LocalDate;
+import java.time.ZoneId;
+
 
 /**
  * Сервис для работы с Tinkoff Invest API
@@ -124,6 +127,36 @@ public class TinkoffApiService {
                 .setOrderId(orderId)
                 .build();
         ordersStub.cancelOrder(request);
+    }
+
+    /**
+     * Получить Operations stub для запросов операций
+     */
+    public OperationsServiceGrpc.OperationsServiceBlockingStub getOperationsStub() {
+        return operationsStub;
+    }
+
+    /**
+     * Получить операции (сделки) за период
+     */
+    public List<Operation> getOperations(LocalDate from, LocalDate to) {
+        Timestamp fromTs = Timestamp.newBuilder()
+                .setSeconds(from.atStartOfDay(ZoneId.systemDefault()).toEpochSecond())
+                .build();
+
+        Timestamp toTs = Timestamp.newBuilder()
+                .setSeconds(to.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toEpochSecond())
+                .build();
+
+        OperationsRequest request = OperationsRequest.newBuilder()
+                .setAccountId(accountId)
+                .setFrom(fromTs)
+                .setTo(toTs)
+                .setState(OperationState.OPERATION_STATE_EXECUTED)
+                .build();
+
+        OperationsResponse response = operationsStub.getOperations(request);
+        return response.getOperationsList();
     }
 
     /**
