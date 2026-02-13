@@ -259,8 +259,9 @@ public class InstrumentsRepository {
     public Instrument findByFigi(String figi) {
         log.debug("Поиск инструмента по FIGI: {}", figi);
 
-        String sql = "SELECT id, figi, name, isin, priority, buyprice, buyquantity, " +
-                "sellprice, sellquantity, manualbuyprice, manualsellprice " +
+        String sql = "SELECT id, figi, name, isin, priority, " +
+                "buy_price, buy_quantity, sell_price, sell_quantity, " +
+                "manual_buy_price, manual_sell_price " +
                 "FROM public.instruments " +
                 "WHERE figi = ? " +
                 "ORDER BY bookdate DESC " +
