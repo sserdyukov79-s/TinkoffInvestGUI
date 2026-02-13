@@ -79,7 +79,6 @@ public class OrdersBusinessService {
                             && instrument.getBuyQuantity() != null
                             && instrument.getBuyQuantity() > 0) {
 
-                        // Проверка, нет ли уже активной заявки BUY по этому FIGI сегодня
                         if (ordersRepository.hasActiveTodayOrder(
                                 instrument.getFigi(),
                                 OrderDirection.ORDER_DIRECTION_BUY.name())) {
@@ -94,12 +93,16 @@ public class OrdersBusinessService {
                             }
                             log.info("Количество: {}", instrument.getBuyQuantity());
 
+                            // >>> ВЫСТАВЛЯЕМ ЗАЯВКУ НА БИРЖУ
                             PostOrderResponse buyResponse = ordersService.postBuyOrder(
                                     accountId,
                                     instrument.getFigi(),
                                     instrument.getBuyQuantity(),
                                     effectiveBuyPrice
                             );
+
+                            // >>> ФИКСИРУЕМ ВРЕМЯ СРАЗУ ПОСЛЕ ОТВЕТА БИРЖИ
+                            Instant submittedAt = Instant.now();
                             successCount++;
 
                             // Сохранение BUY-заявки в public.orders
@@ -111,7 +114,7 @@ public class OrdersBusinessService {
                                     effectiveBuyPrice,
                                     buyResponse.getOrderId(),
                                     null,
-                                    Instant.now() // submittedAt
+                                    submittedAt  // >>> ПЕРЕДАЁМ ВРЕМЯ ПОСЛЕ ОТВЕТА API
                             );
 
                             Thread.sleep(AppConstants.ORDERSDELAYMILLIS);
@@ -123,7 +126,6 @@ public class OrdersBusinessService {
                             && instrument.getSellQuantity() != null
                             && instrument.getSellQuantity() > 0) {
 
-                        // Проверка, нет ли уже активной заявки SELL по этому FIGI сегодня
                         if (ordersRepository.hasActiveTodayOrder(
                                 instrument.getFigi(),
                                 OrderDirection.ORDER_DIRECTION_SELL.name())) {
@@ -138,12 +140,16 @@ public class OrdersBusinessService {
                             }
                             log.info("Количество: {}", instrument.getSellQuantity());
 
+                            // >>> ВЫСТАВЛЯЕМ ЗАЯВКУ НА БИРЖУ
                             PostOrderResponse sellResponse = ordersService.postSellOrder(
                                     accountId,
                                     instrument.getFigi(),
                                     instrument.getSellQuantity(),
                                     effectiveSellPrice
                             );
+
+                            // >>> ФИКСИРУЕМ ВРЕМЯ СРАЗУ ПОСЛЕ ОТВЕТА БИРЖИ
+                            Instant submittedAt = Instant.now();
                             successCount++;
 
                             // Сохранение SELL-заявки в public.orders
@@ -155,7 +161,7 @@ public class OrdersBusinessService {
                                     effectiveSellPrice,
                                     sellResponse.getOrderId(),
                                     null,
-                                    Instant.now() // submittedAt
+                                    submittedAt  // >>> ПЕРЕДАЁМ ВРЕМЯ ПОСЛЕ ОТВЕТА API
                             );
 
                             Thread.sleep(AppConstants.ORDERSDELAYMILLIS);
@@ -197,7 +203,6 @@ public class OrdersBusinessService {
         try {
             Order order = new Order();
 
-            // В качестве myOrderId используем тот же orderId, что вернул брокер
             order.setMyOrderId(exchangeOrderId);
             order.setExchangeOrderId(exchangeOrderId);
 
@@ -215,7 +220,6 @@ public class OrdersBusinessService {
             order.setPrice(price);
             order.setAverageExecutionPrice(null);
 
-            // PENDING, чтобы OrderTracker подобрал эту заявку
             order.setStatus("PENDING");
 
             order.setTotalOrderAmount(null);
@@ -227,17 +231,16 @@ public class OrdersBusinessService {
 
             order.setErrorMessage(null);
             order.setCreatedAt(Instant.now());
-            order.setSubmittedAt(submittedAt);
+            order.setSubmittedAt(submittedAt);  // >>> ВРЕМЯ ВЫСТАВЛЕНИЯ НА БИРЖУ
 
             ordersRepository.save(order);
-            log.info("Заявка сохранена в БД: {} ({})", order.getMyOrderId(), direction);
+            log.info("Заявка сохранена в БД: {} ({}) submitted_at={}",
+                    order.getMyOrderId(), direction, submittedAt);
         } catch (Exception e) {
             log.error("Не удалось сохранить заявку в БД по инструменту {}: {}",
                     instrument.getName(), e.getMessage(), e);
         }
     }
-
-    // ===== DTO результата =====
 
     public static class OrdersResult {
         private final int successCount;

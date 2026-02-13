@@ -107,25 +107,26 @@ public class OrdersRepository {
      */
     public void update(Order order) {
         String sql = """
-                UPDATE public.orders SET
-                    exchange_order_id = ?,
-                    lots_executed = ?,
-                    average_execution_price = ?,
-                    status = ?,
-                    total_order_amount = ?,
-                    commission = ?,
-                    error_message = ?,
-                    executed_at = CASE
-                        WHEN status = 'FILLED' AND executed_at IS NULL THEN now()
-                        ELSE executed_at
-                    END,
-                    cancelled_at = CASE
-                        WHEN status = 'CANCELLED' AND cancelled_at IS NULL THEN now()
-                        ELSE cancelled_at
-                    END,
-                    updated_at = now()
-                WHERE my_order_id = ?
-                """;
+            UPDATE public.orders SET
+                exchange_order_id = ?,
+                lots_executed = ?,
+                average_execution_price = ?,
+                status = ?,
+                total_order_amount = ?,
+                commission = ?,
+                error_message = ?,
+                submitted_at = ?,
+                executed_at = CASE
+                    WHEN status = 'FILLED' AND executed_at IS NULL THEN now()
+                    ELSE executed_at
+                END,
+                cancelled_at = CASE
+                    WHEN status = 'CANCELLED' AND cancelled_at IS NULL THEN now()
+                    ELSE cancelled_at
+                END,
+                updated_at = now()
+            WHERE my_order_id = ?
+            """;
 
         try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
@@ -137,7 +138,15 @@ public class OrdersRepository {
             pstmt.setBigDecimal(5, order.getTotalOrderAmount());
             pstmt.setBigDecimal(6, order.getCommission());
             pstmt.setString(7, order.getErrorMessage());
-            pstmt.setString(8, order.getMyOrderId());
+
+            // >>> ДОБАВЛЯЕМ submitted_at
+            if (order.getSubmittedAt() != null) {
+                pstmt.setTimestamp(8, Timestamp.from(order.getSubmittedAt()));
+            } else {
+                pstmt.setTimestamp(8, null);
+            }
+
+            pstmt.setString(9, order.getMyOrderId());
 
             pstmt.executeUpdate();
             log.debug("Заявка обновлена: {} статус={}", order.getMyOrderId(), order.getStatus());
@@ -146,6 +155,7 @@ public class OrdersRepository {
             throw new RuntimeException("Ошибка БД при обновлении заявки: " + e.getMessage(), e);
         }
     }
+
 
     public Order findByMyOrderId(String myOrderId) {
         String sql = "SELECT * FROM public.orders WHERE my_order_id = ?";
