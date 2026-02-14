@@ -1,6 +1,7 @@
 package com.algotrading.tinkoffinvestgui.entity;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 
 public class Instrument {
     private Integer id;
@@ -12,8 +13,11 @@ public class Instrument {
     private Integer buyQuantity;
     private BigDecimal sellPrice;
     private Integer sellQuantity;
+    private BigDecimal sellPriceFixed;
+    private LocalDate sellPriceFixedDate;
     private BigDecimal manualBuyPrice;
     private BigDecimal manualSellPrice;
+
 
     // ✅ КОНСТРУКТОР ПО УМОЛЧАНИЮ
     public Instrument() {
@@ -115,6 +119,22 @@ public class Instrument {
 
     public void setManualSellPrice(BigDecimal manualSellPrice) {
         this.manualSellPrice = manualSellPrice;
+    }
+
+    public BigDecimal getSellPriceFixed() {
+        return sellPriceFixed;
+    }
+
+    public void setSellPriceFixed(BigDecimal sellPriceFixed) {
+        this.sellPriceFixed = sellPriceFixed;
+    }
+
+    public LocalDate getSellPriceFixedDate() {
+        return sellPriceFixedDate;
+    }
+
+    public void setSellPriceFixedDate(LocalDate sellPriceFixedDate) {
+        this.sellPriceFixedDate = sellPriceFixedDate;
     }
 
     /**
