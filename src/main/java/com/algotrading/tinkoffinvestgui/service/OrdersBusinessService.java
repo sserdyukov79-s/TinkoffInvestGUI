@@ -26,7 +26,8 @@ public class OrdersBusinessService {
      * Отправка заявок по списку инструментов.
      * AccountId берем из БД (parameters.account1).
      */
-    public OrdersResult sendOrdersBatch(List<Instrument> instruments) {
+    @SuppressWarnings("rawtypes")
+    public OrdersResult sendOrdersBatch(List instruments) {
         String accountId;
         try {
             accountId = AccountService.getActiveAccountId();
@@ -38,14 +39,14 @@ public class OrdersBusinessService {
                     "Ошибка получения Account ID из БД. " + e.getMessage()
             );
         }
-
         return sendOrdersBatch(instruments, accountId);
     }
 
     /**
      * Основная логика отправки + сохранение в public.orders.
      */
-    private OrdersResult sendOrdersBatch(List<Instrument> instruments, String accountId) {
+    @SuppressWarnings("rawtypes")
+    private OrdersResult sendOrdersBatch(List instruments, String accountId) {
         log.info("=========================================");
         log.info("НАЧАЛО ОТПРАВКИ ЗАЯВОК");
         log.info("=========================================");
@@ -64,7 +65,8 @@ public class OrdersBusinessService {
         StringBuilder errors = new StringBuilder();
 
         try {
-            for (Instrument instrument : instruments) {
+            for (Object obj : instruments) {
+                Instrument instrument = (Instrument) obj;
                 try {
                     log.info("Обработка инструмента: {}", instrument.getName());
                     log.info("FIGI: {}", instrument.getFigi());
@@ -72,7 +74,14 @@ public class OrdersBusinessService {
                     log.info("Приоритет: {}", instrument.getPriority());
 
                     BigDecimal effectiveBuyPrice = instrument.getEffectiveBuyPrice();
-                    BigDecimal effectiveSellPrice = instrument.getEffectiveSellPrice();
+
+                    // ✅ если есть зафиксированная цена продажи — используем её
+                    BigDecimal effectiveSellPrice;
+                    if (instrument.getSellPriceFixed() != null) {
+                        effectiveSellPrice = instrument.getSellPriceFixed();
+                    } else {
+                        effectiveSellPrice = instrument.getEffectiveSellPrice();
+                    }
 
                     // ===== ЗАЯВКА НА ПОКУПКУ =====
                     if (effectiveBuyPrice != null
@@ -82,6 +91,7 @@ public class OrdersBusinessService {
                         if (ordersRepository.hasActiveTodayOrder(
                                 instrument.getFigi(),
                                 OrderDirection.ORDER_DIRECTION_BUY.name())) {
+
                             log.warn("Пропускаем BUY по {} (FIGI={}): уже есть активная заявка сегодня",
                                     instrument.getName(), instrument.getFigi());
                         } else {
@@ -93,7 +103,6 @@ public class OrdersBusinessService {
                             }
                             log.info("Количество: {}", instrument.getBuyQuantity());
 
-                            // >>> ВЫСТАВЛЯЕМ ЗАЯВКУ НА БИРЖУ
                             PostOrderResponse buyResponse = ordersService.postBuyOrder(
                                     accountId,
                                     instrument.getFigi(),
@@ -101,11 +110,9 @@ public class OrdersBusinessService {
                                     effectiveBuyPrice
                             );
 
-                            // >>> ФИКСИРУЕМ ВРЕМЯ СРАЗУ ПОСЛЕ ОТВЕТА БИРЖИ
                             Instant submittedAt = Instant.now();
                             successCount++;
 
-                            // Сохранение BUY-заявки в public.orders
                             saveNewOrderToDb(
                                     accountId,
                                     instrument,
@@ -114,10 +121,10 @@ public class OrdersBusinessService {
                                     effectiveBuyPrice,
                                     buyResponse.getOrderId(),
                                     null,
-                                    submittedAt  // >>> ПЕРЕДАЁМ ВРЕМЯ ПОСЛЕ ОТВЕТА API
+                                    submittedAt
                             );
 
-                            Thread.sleep(AppConstants.ORDERSDELAYMILLIS);
+                            Thread.sleep(AppConstants.ORDERS_DELAY_MILLIS);
                         }
                     }
 
@@ -129,18 +136,20 @@ public class OrdersBusinessService {
                         if (ordersRepository.hasActiveTodayOrder(
                                 instrument.getFigi(),
                                 OrderDirection.ORDER_DIRECTION_SELL.name())) {
+
                             log.warn("Пропускаем SELL по {} (FIGI={}): уже есть активная заявка сегодня",
                                     instrument.getName(), instrument.getFigi());
                         } else {
                             log.info("--- ЗАЯВКА НА ПРОДАЖУ ---");
                             if (instrument.getManualSellPrice() != null) {
                                 log.info("Цена продажи (MANUAL): {}", effectiveSellPrice);
+                            } else if (instrument.getSellPriceFixed() != null) {
+                                log.info("Цена продажи (FIXED): {}", effectiveSellPrice);
                             } else {
                                 log.info("Цена продажи (AUTO): {}", effectiveSellPrice);
                             }
                             log.info("Количество: {}", instrument.getSellQuantity());
 
-                            // >>> ВЫСТАВЛЯЕМ ЗАЯВКУ НА БИРЖУ
                             PostOrderResponse sellResponse = ordersService.postSellOrder(
                                     accountId,
                                     instrument.getFigi(),
@@ -148,11 +157,9 @@ public class OrdersBusinessService {
                                     effectiveSellPrice
                             );
 
-                            // >>> ФИКСИРУЕМ ВРЕМЯ СРАЗУ ПОСЛЕ ОТВЕТА БИРЖИ
                             Instant submittedAt = Instant.now();
                             successCount++;
 
-                            // Сохранение SELL-заявки в public.orders
                             saveNewOrderToDb(
                                     accountId,
                                     instrument,
@@ -161,10 +168,10 @@ public class OrdersBusinessService {
                                     effectiveSellPrice,
                                     sellResponse.getOrderId(),
                                     null,
-                                    submittedAt  // >>> ПЕРЕДАЁМ ВРЕМЯ ПОСЛЕ ОТВЕТА API
+                                    submittedAt
                             );
 
-                            Thread.sleep(AppConstants.ORDERSDELAYMILLIS);
+                            Thread.sleep(AppConstants.ORDERS_DELAY_MILLIS);
                         }
                     }
 
@@ -202,36 +209,27 @@ public class OrdersBusinessService {
                                   Instant submittedAt) {
         try {
             Order order = new Order();
-
             order.setMyOrderId(exchangeOrderId);
             order.setExchangeOrderId(exchangeOrderId);
-
             order.setAccountId(accountId);
             order.setFigi(instrument.getFigi());
             order.setTicker(null);
             order.setInstrumentName(instrument.getName());
-
             order.setDirection(direction);
             order.setOrderType("LIMIT");
-
             order.setLotsRequested(quantity);
             order.setLotsExecuted(0L);
-
             order.setPrice(price);
             order.setAverageExecutionPrice(null);
-
             order.setStatus("PENDING");
-
             order.setTotalOrderAmount(null);
             order.setCommission(null);
             order.setAci(null);
-
             order.setParentOrderId(parentOrderId);
             order.setParentFillTime(null);
-
             order.setErrorMessage(null);
             order.setCreatedAt(Instant.now());
-            order.setSubmittedAt(submittedAt);  // >>> ВРЕМЯ ВЫСТАВЛЕНИЯ НА БИРЖУ
+            order.setSubmittedAt(submittedAt);
 
             ordersRepository.save(order);
             log.info("Заявка сохранена в БД: {} ({}) submitted_at={}",

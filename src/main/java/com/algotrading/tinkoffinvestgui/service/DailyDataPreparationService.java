@@ -9,7 +9,6 @@ import org.slf4j.LoggerFactory;
 import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.Statement;
-import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -19,6 +18,7 @@ import java.util.List;
  * 3. Обновление buy_price/sell_price в БД
  */
 public class DailyDataPreparationService {
+
     private static final Logger log = LoggerFactory.getLogger(DailyDataPreparationService.class);
 
     private final InstrumentsRepository instrumentsRepository;
@@ -46,7 +46,7 @@ public class DailyDataPreparationService {
             // Шаг 1: Копирование инструментов на текущую дату
             boolean copied = copyInstrumentsToCurrentDate();
             if (!copied) {
-                log.info("ℹ️  Инструменты уже скопированы на сегодня, пропускаем");
+                log.info("ℹ️ Инструменты уже скопированы на сегодня, пропускаем");
                 // Продолжаем, т.к. может быть нужен пересчёт цен
             }
 
@@ -57,9 +57,7 @@ public class DailyDataPreparationService {
             log.info("✅ Подготовка данных завершена успешно");
             log.info("   Обновлено инструментов: {}", updatedCount);
             log.info("═══════════════════════════════════════════════════════");
-
             return true;
-
         } catch (Exception e) {
             log.error("❌ Ошибка при подготовке данных", e);
             return false;
@@ -74,42 +72,44 @@ public class DailyDataPreparationService {
 
         String sql =
                 "WITH last_date AS ( " +
-                        "    SELECT MAX(bookdate) AS max_date " +
-                        "    FROM public.instruments " +
+                        "  SELECT MAX(bookdate) AS max_date " +
+                        "  FROM public.instruments " +
                         ") " +
                         "INSERT INTO public.instruments( " +
-                        "    bookdate, figi, name, isin, priority, " +
-                        "    buy_price, buy_quantity, sell_price, sell_quantity, " +
-                        "    manual_buy_price, manual_sell_price " +
+                        "  bookdate, figi, name, isin, priority, " +
+                        "  buy_price, buy_quantity, sell_price, sell_quantity, " +
+                        "  manual_buy_price, manual_sell_price, " +
+                        "  sell_price_fixed, sell_price_fixed_date " +
                         ") " +
                         "SELECT DISTINCT ON (i.id) " +
-                        "    CURRENT_DATE AS bookdate, " +
-                        "    i.figi, i.name, i.isin, i.priority, " +
-                        "    i.buy_price, i.buy_quantity, " +
-                        "    i.sell_price, i.sell_quantity, " +
-                        "    i.manual_buy_price, i.manual_sell_price " +
+                        "  CURRENT_DATE AS bookdate, " +
+                        "  i.figi, i.name, i.isin, i.priority, " +
+                        "  i.buy_price, i.buy_quantity, " +
+                        "  i.sell_price, i.sell_quantity, " +
+                        "  i.manual_buy_price, i.manual_sell_price, " +
+                        "  i.sell_price_fixed, i.sell_price_fixed_date " +
                         "FROM public.instruments i " +
                         "JOIN last_date ld ON i.bookdate = ld.max_date " +
-                        "    AND (i.buy_quantity IS NOT NULL OR i.sell_quantity IS NOT NULL) " +
+                        "  AND (i.buy_quantity IS NOT NULL OR i.sell_quantity IS NOT NULL) " +
                         "WHERE NOT EXISTS ( " +
-                        "    SELECT 1 " +
-                        "    FROM public.instruments " +
-                        "    WHERE bookdate = CURRENT_DATE " +
+                        "  SELECT 1 " +
+                        "  FROM public.instruments i2 " +
+                        "  WHERE i2.bookdate = CURRENT_DATE " +
+                        "    AND i2.figi = i.figi " +
+                        "    AND i2.priority = i.priority " +
                         ")";
 
         try (Connection conn = DatabaseConnection.getConnection();
              Statement stmt = conn.createStatement()) {
 
             int rowsInserted = stmt.executeUpdate(sql);
-
             if (rowsInserted > 0) {
                 log.info("✅ Скопировано инструментов: {}", rowsInserted);
                 return true;
             } else {
-                log.info("ℹ️  Записи на текущую дату уже существуют");
+                log.info("ℹ️ Записи на текущую дату уже существуют");
                 return false;
             }
-
         } catch (Exception e) {
             log.error("❌ Ошибка при копировании инструментов", e);
             throw new RuntimeException("Ошибка копирования инструментов", e);
@@ -124,9 +124,8 @@ public class DailyDataPreparationService {
 
         // Получаем все инструменты на текущую дату
         List<Instrument> instruments = instrumentsRepository.findAll();
-
         if (instruments.isEmpty()) {
-            log.warn("⚠️  Нет инструментов для расчёта цен");
+            log.warn("⚠️ Нет инструментов для расчёта цен");
             return 0;
         }
 
@@ -137,24 +136,13 @@ public class DailyDataPreparationService {
 
         for (Instrument instrument : instruments) {
             try {
-      /*          // Пропускаем, если установлены manual цены
-                if (instrument.getManualBuyPrice() != null ||
-                        instrument.getManualSellPrice() != null) {
-                    log.debug("⏭️  Пропускаем '{}' (manual_price установлен)", instrument.getName());
-                    skippedCount++;
-                    continue;
-                }
-*/
-                // Рассчитываем цены по алгоритму
-                PriceCalculationResult result = priceCalculator.calculatePrices(instrument);
+                // при желании можно снова включить skip по manual_* ценам
 
+                BondPriceCalculator.PriceCalculationResult result = priceCalculator.calculatePrices(instrument);
                 if (result.isSuccess()) {
-
-                    // Обновляем цены в объекте
                     instrument.setBuyPrice(result.getBuyPrice());
                     instrument.setSellPrice(result.getSellPrice());
-
-                    // Сохраняем в БД
+                    // sell_price_fixed* НЕ трогаем
                     instrumentsRepository.update(instrument);
 
                     log.info("✅ Обновлены цены '{}': buy={}, sell={}",
@@ -163,11 +151,10 @@ public class DailyDataPreparationService {
                             result.getSellPrice());
                     updatedCount++;
                 } else {
-                    log.warn("⚠️  Не удалось рассчитать цены для '{}': {}",
+                    log.warn("⚠️ Не удалось рассчитать цены для '{}': {}",
                             instrument.getName(), result.getErrorMessage());
                     skippedCount++;
                 }
-
             } catch (Exception e) {
                 log.error("❌ Ошибка при обработке инструмента '{}'", instrument.getName(), e);
                 skippedCount++;
@@ -176,13 +163,13 @@ public class DailyDataPreparationService {
 
         log.info("📈 Результат расчёта цен:");
         log.info("   ✅ Обновлено: {}", updatedCount);
-        log.info("   ⏭️  Пропущено: {}", skippedCount);
+        log.info("   ⏭️ Пропущено: {}", skippedCount);
 
         return updatedCount;
     }
 
     /**
-     * Результат расчёта цен
+     * Обёртка результата (оставлена как в твоём классе, если используешь)
      */
     public static class PriceCalculationResult {
         private final boolean success;
