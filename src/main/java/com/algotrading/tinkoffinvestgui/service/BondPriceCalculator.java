@@ -75,7 +75,7 @@ public class BondPriceCalculator {
     /**
      * Рассчитывает цены покупки и продажи для инструмента
      */
-    public PriceCalculationResult calculatePrices(Instrument instrument) {
+    public DailyDataPreparationService.PriceCalculationResult calculatePrices(Instrument instrument) {
         try {
             if (instrument.getFigi() == null || instrument.getFigi().isEmpty()) {
                 return PriceCalculationResult.failure("FIGI отсутствует");
@@ -134,7 +134,7 @@ public class BondPriceCalculator {
             log.debug("Расчёт для '{}': lastPrice={}, volatility={}, dynamicMultiplier={}, buyPrice={}, sellPrice={}",
                     instrument.getName(), lastPrice, longTermVolatility, dynamicMultiplier, buyPrice, sellPrice);
 
-            return PriceCalculationResult.success(buyPrice, sellPrice);
+            return DailyDataPreparationService.PriceCalculationResult.success(buyPrice, sellPrice);
 
         } catch (Exception e) {
             log.error("Ошибка расчёта цен для '{}'", instrument.getName(), e);

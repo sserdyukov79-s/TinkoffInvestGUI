@@ -138,7 +138,7 @@ public class DailyDataPreparationService {
             try {
                 // при желании можно снова включить skip по manual_* ценам
 
-                BondPriceCalculator.PriceCalculationResult result = priceCalculator.calculatePrices(instrument);
+                PriceCalculationResult result = priceCalculator.calculatePrices(instrument);
                 if (result.isSuccess()) {
                     instrument.setBuyPrice(result.getBuyPrice());
                     instrument.setSellPrice(result.getSellPrice());

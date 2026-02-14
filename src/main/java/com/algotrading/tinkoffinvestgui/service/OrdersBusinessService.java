@@ -124,7 +124,7 @@ public class OrdersBusinessService {
                                     submittedAt
                             );
 
-                            Thread.sleep(AppConstants.ORDERS_DELAY_MILLIS);
+                            Thread.sleep(AppConstants.ORDERSDELAYMILLIS);
                         }
                     }
 
@@ -171,7 +171,7 @@ public class OrdersBusinessService {
                                     submittedAt
                             );
 
-                            Thread.sleep(AppConstants.ORDERS_DELAY_MILLIS);
+                            Thread.sleep(AppConstants.ORDERSDELAYMILLIS);
                         }
                     }
 
