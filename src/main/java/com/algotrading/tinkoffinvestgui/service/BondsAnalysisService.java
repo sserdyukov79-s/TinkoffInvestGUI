@@ -437,6 +437,8 @@ public class BondsAnalysisService {
         private double minPrice;
         private double priceRangePercent;
         private double trend;
+        private double volatilityPercent;
+        private double avgDailyRangePercent;
         private double score;
 
         // Getters and Setters
@@ -570,8 +572,41 @@ public class BondsAnalysisService {
             this.trend = trend;
         }
 
+        public double getVolatilityPercent() {
+            return volatilityPercent;
+        }
+
+        public void setVolatilityPercent(double volatilityPercent) {
+            this.volatilityPercent = volatilityPercent;
+        }
+
+        public double getAvgDailyRangePercent() {
+            return avgDailyRangePercent;
+        }
+
+        public void setAvgDailyRangePercent(double avgDailyRangePercent) {
+            this.avgDailyRangePercent = avgDailyRangePercent;
+        }
+
         public double getScore() {
-            return score;
+            // Приоритет: волатильность -> dlong -> объём
+
+            double vol = Math.max(0.0, volatilityPercent);
+
+            double dlongNorm = Math.min(Math.max(dlong, 0.0), 10.0);
+
+            double volumeScore = Math.log1p(Math.max(0.0, avgDailyVolume));
+
+            double wVol = 1.0;   // основной фактор
+            double wDlong = 0.3; // второстепенный
+            double wVolm = 0.2;  // третичный
+
+            double baseScore = wVol * vol + wDlong * dlongNorm + wVolm * volumeScore;
+
+            double trendPenalty = trend < -2.0 ? Math.min(Math.abs(trend) / 5.0, 5.0) : 0.0;
+
+            this.score = Math.max(0.0, baseScore - trendPenalty);
+            return this.score;
         }
 
         public void setScore(double score) {
