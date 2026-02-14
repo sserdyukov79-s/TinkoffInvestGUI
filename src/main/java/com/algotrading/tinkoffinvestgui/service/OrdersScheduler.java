@@ -113,12 +113,12 @@ public class OrdersScheduler {
 
     private void executeDailyTask() {
         LocalDate today = LocalDate.now();
-
+/*
         if (!isTradeDay(today)) {
             log.info("Сегодня не торговый день, ежедневная задача пропущена");
             return;
         }
-
+*/
         if (lastExecutionDate != null && lastExecutionDate.equals(today)) {
             log.debug("Ежедневная задача уже выполнена сегодня");
             return;
