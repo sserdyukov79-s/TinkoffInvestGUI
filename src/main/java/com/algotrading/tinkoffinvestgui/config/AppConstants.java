@@ -17,11 +17,13 @@ public final class AppConstants {
 
     // ===== SQL ЗАПРОСЫ =====
     public static final String SQL_SELECT_ALL_INSTRUMENTS =
-    "SELECT id, priority, figi, name, isin,  " +
-            "buy_quantity, buy_price, manual_buy_price, sell_quantity, sell_price, manual_sell_price " +
-            "FROM public.instruments " +
-            "WHERE bookdate = CURRENT_DATE " +
-            "ORDER BY priority, name";
+            "SELECT id, priority, figi, name, isin, " +
+                    "       buy_quantity, buy_price, manual_buy_price, " +
+                    "       sell_quantity, sell_price, manual_sell_price, " +
+                    "       sell_price_fixed, sell_price_fixed_date " +
+                    "FROM public.instruments " +
+                    "WHERE bookdate = CURRENT_DATE " +
+                    "ORDER BY priority, name";
 
 
 

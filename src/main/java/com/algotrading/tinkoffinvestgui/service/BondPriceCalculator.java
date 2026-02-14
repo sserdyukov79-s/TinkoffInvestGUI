@@ -28,6 +28,12 @@ public class BondPriceCalculator {
     private double volatilityMultiplier;
     private double brokerCommissionDecimal;
 
+    // ✅ НОВЫЕ КОНСТАНТЫ для динамического множителя
+    private static final int SHORT_PERIOD_DAYS = 7;   // Короткое окно для текущей волатильности
+    private static final int LONG_PERIOD_DAYS = 30;   // Длинное окно для исторической волатильности
+    private static final double HIGH_VOLATILITY_THRESHOLD = 1.5;  // ratio > 1.5 = высокая волатильность
+    private static final double LOW_VOLATILITY_THRESHOLD = 0.5;   // ratio < 0.5 = низкая волатильность
+
     public BondPriceCalculator() {
         this.candlesService = new CandlesApiService(
                 ConnectorConfig.getApiToken(),
@@ -43,11 +49,11 @@ public class BondPriceCalculator {
      */
     private void loadParameters() {
         try {
-            // Множитель волатильности (default 1.2)
+            // Множитель волатильности (default 2.5)
             String volatilityStr = parametersRepository.getParameterValue("VOLATILITY_MULTIPLIER");
             this.volatilityMultiplier = (volatilityStr != null && !volatilityStr.isEmpty())
                     ? Double.parseDouble(volatilityStr)
-                    : 1.2;
+                    : 2.5;
 
             // Комиссия брокера (default 0.04%)
             String commissionStr = parametersRepository.getParameterValue("BROKER_COMMISSION_PERCENT");
@@ -61,7 +67,7 @@ public class BondPriceCalculator {
 
         } catch (Exception e) {
             log.warn("Не удалось загрузить параметры, используем значения по умолчанию", e);
-            this.volatilityMultiplier = 1.2;
+            this.volatilityMultiplier = 2.5;
             this.brokerCommissionDecimal = 0.0004; // 0.04%
         }
     }
@@ -69,21 +75,20 @@ public class BondPriceCalculator {
     /**
      * Рассчитывает цены покупки и продажи для инструмента
      */
-    public PriceCalculationResult calculatePrices(Instrument instrument) {
+    public DailyDataPreparationService.PriceCalculationResult calculatePrices(Instrument instrument) {
         try {
-            // Проверка FIGI
             if (instrument.getFigi() == null || instrument.getFigi().isEmpty()) {
                 return PriceCalculationResult.failure("FIGI отсутствует");
             }
 
-            // Получаем исторические данные (последние 30 дней для расчёта волатильности)
-            LocalDate endDate = LocalDate.now();
-            LocalDate startDate = endDate.minusDays(30);
+            // ✅ ИСПРАВЛЕНО: Получаем данные до ВЧЕРАШНЕГО дня (исключаем сегодня)
+            LocalDate endDate = LocalDate.now().minusDays(1);  // ❗ ВЧЕРА
+            LocalDate startDate = endDate.minusDays(LONG_PERIOD_DAYS);
 
             List<HistoricCandle> candles = candlesService.getCandles(
                     instrument.getFigi(),
                     startDate,
-                    endDate,
+                    endDate,  // ✅ До вчера включительно
                     CandleInterval.CANDLE_INTERVAL_DAY
             );
 
@@ -91,7 +96,7 @@ public class BondPriceCalculator {
                 return PriceCalculationResult.failure("Нет исторических данных");
             }
 
-            // Последняя цена закрытия
+            // ✅ Теперь lastCandle = свеча вчерашнего дня (полностью закрытая)
             HistoricCandle lastCandle = candles.get(candles.size() - 1);
             double lastPrice = quotationToDouble(lastCandle.getClose());
 
@@ -99,16 +104,19 @@ public class BondPriceCalculator {
                 return PriceCalculationResult.failure("Некорректная последняя цена");
             }
 
-            // Расчёт волатильности (стандартное отклонение цен закрытия)
-            double volatility = calculateVolatility(candles);
+            // ✅ НОВОЕ: Расчёт волатильности на длинном окне (30 дней)
+            double longTermVolatility = calculateVolatility(candles);
 
-            // Расчёт цены покупки: lastPrice - (volatilityMultiplier * volatility)
-            double buyPriceRaw = lastPrice - (volatilityMultiplier * volatility);
+            // ✅ НОВОЕ: Динамический множитель волатильности
+            double dynamicMultiplier = getDynamicMultiplier(candles, longTermVolatility);
+
+            // ✅ ИЗМЕНЕНО: Используем динамический множитель вместо статического
+            double buyPriceRaw = lastPrice - (dynamicMultiplier * longTermVolatility);
 
             // Расчёт цены продажи: lastPrice
             double sellPriceRaw = calculateSellPrice(lastPrice, buyPriceRaw);
 
-            // ✅ Умножение на 10 (цена в деньгах, а не процентах) + округление
+            // Умножение на 10 (цена в деньгах, а не процентах) + округление
             BigDecimal buyPrice = BigDecimal.valueOf(buyPriceRaw)
                     .multiply(BigDecimal.TEN)
                     .setScale(2, RoundingMode.HALF_UP);
@@ -122,15 +130,65 @@ public class BondPriceCalculator {
                 return PriceCalculationResult.failure("Рассчитанные цены некорректны");
             }
 
-            log.debug("Расчёт для '{}': lastPrice={}, volatility={}, buyPrice={}, sellPrice={}",
-                    instrument.getName(), lastPrice, volatility, buyPrice, sellPrice);
+            // ✅ УЛУЧШЕННОЕ логирование с динамическим множителем
+            log.debug("Расчёт для '{}': lastPrice={}, volatility={}, dynamicMultiplier={}, buyPrice={}, sellPrice={}",
+                    instrument.getName(), lastPrice, longTermVolatility, dynamicMultiplier, buyPrice, sellPrice);
 
-            return PriceCalculationResult.success(buyPrice, sellPrice);
+            return DailyDataPreparationService.PriceCalculationResult.success(buyPrice, sellPrice);
 
         } catch (Exception e) {
             log.error("Ошибка расчёта цен для '{}'", instrument.getName(), e);
             return PriceCalculationResult.failure(e.getMessage());
         }
+    }
+
+    /**
+     * ✅ НОВЫЙ МЕТОД: Рассчитывает динамический множитель волатильности
+     * на основе соотношения текущей (7 дней) и исторической (30 дней) волатильности
+     *
+     * @param candles Все свечи (30 дней)
+     * @param longTermVolatility Волатильность за 30 дней
+     * @return Динамический множитель (от 1.5 до 3.0)
+     */
+    private double getDynamicMultiplier(List<HistoricCandle> candles, double longTermVolatility) {
+        if (candles.size() < SHORT_PERIOD_DAYS) {
+            log.debug("Недостаточно данных для динамического множителя, используем базовый: {}",
+                    volatilityMultiplier);
+            return volatilityMultiplier;
+        }
+
+        List<HistoricCandle> shortWindow = candles.subList(
+                Math.max(0, candles.size() - SHORT_PERIOD_DAYS),
+                candles.size()
+        );
+        double shortTermVolatility = calculateVolatility(shortWindow);
+
+        if (longTermVolatility == 0) {
+            log.warn("Нулевая долгосрочная волатильность, используем базовый множитель");
+            return volatilityMultiplier;
+        }
+
+        double ratio = shortTermVolatility / longTermVolatility;
+        double multiplier;
+
+        if (ratio > HIGH_VOLATILITY_THRESHOLD) {
+            // ✅ ИЗМЕНЕНО: Уменьшаем базовый множитель на 40%
+            multiplier = volatilityMultiplier * 0.6;
+            log.info("🔴 Высокая волатильность (ratio={:.2f}): базовый {} × 0.6 = {}",
+                    ratio, volatilityMultiplier, multiplier);
+        } else if (ratio < LOW_VOLATILITY_THRESHOLD) {
+            // ✅ ИЗМЕНЕНО: Увеличиваем базовый множитель на 20%
+            multiplier = volatilityMultiplier * 1.2;
+            log.info("🟢 Низкая волатильность (ratio={:.2f}): базовый {} × 1.2 = {}",
+                    ratio, volatilityMultiplier, multiplier);
+        } else {
+            // ✅ ИСПОЛЬЗУЕМ базовый из БД
+            multiplier = volatilityMultiplier;
+            log.debug("🟡 Нормальная волатильность (ratio={:.2f}): базовый {}",
+                    ratio, volatilityMultiplier);
+        }
+
+        return multiplier;
     }
 
     /**
