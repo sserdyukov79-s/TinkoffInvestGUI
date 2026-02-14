@@ -77,19 +77,18 @@ public class BondPriceCalculator {
      */
     public PriceCalculationResult calculatePrices(Instrument instrument) {
         try {
-            // Проверка FIGI
             if (instrument.getFigi() == null || instrument.getFigi().isEmpty()) {
                 return PriceCalculationResult.failure("FIGI отсутствует");
             }
 
-            // ✅ ИЗМЕНЕНО: Получаем 30 дней для основного расчёта
-            LocalDate endDate = LocalDate.now();
+            // ✅ ИСПРАВЛЕНО: Получаем данные до ВЧЕРАШНЕГО дня (исключаем сегодня)
+            LocalDate endDate = LocalDate.now().minusDays(1);  // ❗ ВЧЕРА
             LocalDate startDate = endDate.minusDays(LONG_PERIOD_DAYS);
 
             List<HistoricCandle> candles = candlesService.getCandles(
                     instrument.getFigi(),
                     startDate,
-                    endDate,
+                    endDate,  // ✅ До вчера включительно
                     CandleInterval.CANDLE_INTERVAL_DAY
             );
 
@@ -97,7 +96,7 @@ public class BondPriceCalculator {
                 return PriceCalculationResult.failure("Нет исторических данных");
             }
 
-            // Последняя цена закрытия
+            // ✅ Теперь lastCandle = свеча вчерашнего дня (полностью закрытая)
             HistoricCandle lastCandle = candles.get(candles.size() - 1);
             double lastPrice = quotationToDouble(lastCandle.getClose());
 
