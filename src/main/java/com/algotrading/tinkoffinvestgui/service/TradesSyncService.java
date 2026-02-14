@@ -156,37 +156,43 @@ public class TradesSyncService {
         trade.setQuantity(Math.abs(operation.getQuantity()));
         trade.setPrice(MoneyConverter.toBigDecimal(operation.getPrice()));
 
-        // Сумма сделки (может быть отрицательной для покупок)
+        // Сумма сделки (payment)
         BigDecimal payment = MoneyConverter.toBigDecimal(operation.getPayment());
         trade.setTradeAmount(payment.abs());
 
-        // ✅ КОМИССИЯ из поля commission
-        if (operation.hasCommission()) {
-            BigDecimal commission = MoneyConverter.toBigDecimal(operation.getCommission());
-            trade.setCommission(commission.abs());
-            log.debug("💰 Комиссия: {}", commission);
-        } else {
-            trade.setCommission(BigDecimal.ZERO);
-            log.debug("⚠️ Комиссия отсутствует в операции");
+        // ✅ КОМИССИЯ - вычисляем как разницу между payment и (price * quantity)
+        // Для покупки: payment = -(price * quantity + commission)
+        // Для продажи: payment = price * quantity - commission
+        BigDecimal priceTotal = trade.getPrice().multiply(BigDecimal.valueOf(trade.getQuantity()));
+        BigDecimal commission = payment.abs().subtract(priceTotal).abs();
+
+        // Если комиссия получилась слишком большой (>10% от суммы), значит ошибка в расчёте
+        if (commission.compareTo(priceTotal.multiply(BigDecimal.valueOf(0.1))) > 0) {
+            log.warn("⚠️ Комиссия подозрительно большая: {} (сумма сделки: {})", commission, priceTotal);
+            commission = BigDecimal.ZERO;
         }
 
-        // ✅ НКД (Accumulated Coupon Income) для облигаций
-        if (operation.hasAccruedInt()) {
-            BigDecimal aci = MoneyConverter.toBigDecimal(operation.getAccruedInt());
-            trade.setAci(aci);
-            log.debug("📊 НКД: {}", aci);
-        } else {
-            trade.setAci(BigDecimal.ZERO);
+        trade.setCommission(commission);
+        log.debug("💰 Расчётная комиссия: {} (payment={}, price*qty={})",
+                commission, payment, priceTotal);
+
+        // ✅ НКД и доходность - пока недоступны в данной версии API
+        // Попробуем извлечь из OperationTrade если есть
+        BigDecimal aci = BigDecimal.ZERO;
+        if (operation.getTradesCount() > 0) {
+            log.debug("📋 Операция содержит {} внутренних сделок", operation.getTradesCount());
+            for (OperationTrade opTrade : operation.getTradesList()) {
+                log.debug("  - Trade: datetime={}, quantity={}, price={}",
+                        opTrade.getDateTime(), opTrade.getQuantity(), opTrade.getPrice());
+
+                // НКД может быть в поле yield_relative или отдельно
+                // Но в текущей protobuf схеме эти поля могут отсутствовать
+                // Оставляем для будущих версий API
+            }
         }
 
-        // ✅ Доходность (если есть)
-        if (operation.hasYield()) {
-            BigDecimal yieldValue = MoneyConverter.toBigDecimal(operation.getYield());
-            trade.setYieldValue(yieldValue);
-            log.debug("📈 Доходность: {}", yieldValue);
-        } else {
-            trade.setYieldValue(BigDecimal.ZERO);
-        }
+        trade.setAci(aci);
+        trade.setYieldValue(BigDecimal.ZERO);
 
         // Дата сделки
         trade.setTradeDate(timestampToInstant(operation.getDate()));
@@ -194,6 +200,7 @@ public class TradesSyncService {
 
         return trade;
     }
+
 
 
 
