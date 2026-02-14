@@ -121,9 +121,7 @@ public class TradesSyncService {
     /**
      * Создание объекта Trade из Operation API
      */
-    /**
-     * Создание объекта Trade из Operation API
-     */
+
     private Trade createTradeFromOperation(Operation operation, String accountId) {
         Trade trade = new Trade();
 
@@ -131,11 +129,21 @@ public class TradesSyncService {
         trade.setAccountId(accountId);
         trade.setFigi(operation.getFigi());
 
-        // Получаем доп. инфо об инструменте из БД
-        var instrument = instrumentsRepository.findByFigi(operation.getFigi());
-        if (instrument != null) {
-            trade.setInstrumentName(instrument.getName());
-            trade.setTicker(instrument.getIsin());
+        // Получаем доп. инфо об инструменте из БД (с защитой от ошибок)
+        try {
+            var instrument = instrumentsRepository.findByFigi(operation.getFigi());
+            if (instrument != null) {
+                trade.setInstrumentName(instrument.getName());
+                trade.setTicker(instrument.getIsin());
+            } else {
+                log.warn("⚠️ Инструмент не найден в БД: {}", operation.getFigi());
+                trade.setInstrumentName(operation.getFigi());
+                trade.setTicker("");
+            }
+        } catch (Exception e) {
+            log.error("❌ Ошибка получения инструмента {}: {}", operation.getFigi(), e.getMessage());
+            trade.setInstrumentName(operation.getFigi());
+            trade.setTicker("");
         }
 
         trade.setInstrumentType(operation.getInstrumentType());
@@ -148,29 +156,52 @@ public class TradesSyncService {
         trade.setQuantity(Math.abs(operation.getQuantity()));
         trade.setPrice(MoneyConverter.toBigDecimal(operation.getPrice()));
 
-        // Сумма сделки (может быть отрицательной для покупок)
+        // Сумма сделки (payment)
         BigDecimal payment = MoneyConverter.toBigDecimal(operation.getPayment());
         trade.setTradeAmount(payment.abs());
 
-        // Комиссия - вычисляем из trades списка, если есть
-        BigDecimal commission = BigDecimal.ZERO;
-        for (OperationTrade opTrade : operation.getTradesList()) {
-            // Комиссия не всегда есть в структуре, используем 0
-            commission = commission.add(BigDecimal.ZERO);
-        }
-        trade.setCommission(commission);
+        // ✅ КОМИССИЯ - вычисляем как разницу между payment и (price * quantity)
+        // Для покупки: payment = -(price * quantity + commission)
+        // Для продажи: payment = price * quantity - commission
+        BigDecimal priceTotal = trade.getPrice().multiply(BigDecimal.valueOf(trade.getQuantity()));
+        BigDecimal commission = payment.abs().subtract(priceTotal).abs();
 
-        // НКД и доходность - для будущих версий API
-        trade.setAci(BigDecimal.ZERO);
+        // Если комиссия получилась слишком большой (>10% от суммы), значит ошибка в расчёте
+        if (commission.compareTo(priceTotal.multiply(BigDecimal.valueOf(0.1))) > 0) {
+            log.warn("⚠️ Комиссия подозрительно большая: {} (сумма сделки: {})", commission, priceTotal);
+            commission = BigDecimal.ZERO;
+        }
+
+        trade.setCommission(commission);
+        log.debug("💰 Расчётная комиссия: {} (payment={}, price*qty={})",
+                commission, payment, priceTotal);
+
+        // ✅ НКД и доходность - пока недоступны в данной версии API
+        // Попробуем извлечь из OperationTrade если есть
+        BigDecimal aci = BigDecimal.ZERO;
+        if (operation.getTradesCount() > 0) {
+            log.debug("📋 Операция содержит {} внутренних сделок", operation.getTradesCount());
+            for (OperationTrade opTrade : operation.getTradesList()) {
+                log.debug("  - Trade: datetime={}, quantity={}, price={}",
+                        opTrade.getDateTime(), opTrade.getQuantity(), opTrade.getPrice());
+
+                // НКД может быть в поле yield_relative или отдельно
+                // Но в текущей protobuf схеме эти поля могут отсутствовать
+                // Оставляем для будущих версий API
+            }
+        }
+
+        trade.setAci(aci);
         trade.setYieldValue(BigDecimal.ZERO);
 
         // Дата сделки
         trade.setTradeDate(timestampToInstant(operation.getDate()));
-
         trade.setCurrency(operation.getCurrency());
 
         return trade;
     }
+
+
 
 
     private Timestamp timestampFromLocalDate(LocalDate date) {
